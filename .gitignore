@@ -1,0 +1,6 @@
+node_modules/
+dist/
+index.html
+play-iron-fist-v.html
+.DS_Store
+*.log

@@ -1,0 +1,28 @@
+{
+  "name": "tekken5-webgpu-championship",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Iron Fist V: WebGPU Championship — Full 12-Character 3D Fighting Game built on DriftEngine (WebGPU + WebGL2 fallback) & WebAssembly for PC and Mobile",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "npm run build:wasm && tsc --noEmit && vite build && node scripts/build-standalone.mjs",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@driftengine/animation": "4.14.3",
+    "@driftengine/audio": "4.14.3",
+    "@driftengine/core": "4.14.3",
+    "gl-matrix": "^3.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.0",
+    "wabt": "^1.0.36"
+  }
+}
