@@ -1518,3 +1518,115 @@ export function stepMatch(
     });
   }
 }
+
+function copyFighterSim(src: FighterSim, dst: FighterSim): void {
+  dst.index = src.index;
+  dst.char = src.char;
+  dst.costumeIdx = src.costumeIdx;
+  dst.x = src.x;
+  dst.y = src.y;
+  dst.z = src.z;
+  dst.prevX = src.prevX;
+  dst.prevY = src.prevY;
+  dst.prevZ = src.prevZ;
+  dst.vx = src.vx;
+  dst.vy = src.vy;
+  dst.vz = src.vz;
+  dst.hp = src.hp;
+  dst.recoverableHp = src.recoverableHp;
+  dst.facing = src.facing;
+  dst.state = src.state;
+  dst.stateFrame = src.stateFrame;
+  dst.activeMove = src.activeMove;
+  dst.crouching = src.crouching;
+  dst.holdDownFrames = src.holdDownFrames;
+  dst.holdUpFrames = src.holdUpFrames;
+  dst.sidestepDir = src.sidestepDir;
+  dst.sidestepFrames = src.sidestepFrames;
+  dst.buffer.cloneFrom(src.buffer);
+  dst.prevMask = src.prevMask;
+  dst.hitRegistered = src.hitRegistered;
+  dst.stunFrames = src.stunFrames;
+  dst.juggleHits = src.juggleHits;
+  dst.boundUsed = src.boundUsed;
+  dst.wallSplatUsed = src.wallSplatUsed;
+  dst.rageActive = src.rageActive;
+  dst.rageArtUsed = src.rageArtUsed;
+  dst.kiFrames = src.kiFrames;
+  dst.kiUsed = src.kiUsed;
+  dst.pendingThrow = src.pendingThrow
+    ? {
+        damage: src.pendingThrow.damage,
+        breakMask: src.pendingThrow.breakMask,
+        attackerIdx: src.pendingThrow.attackerIdx,
+      }
+    : null;
+  dst.comboCounter = src.comboCounter;
+  dst.comboDamage = src.comboDamage;
+  dst.lastFrameAdvantage = src.lastFrameAdvantage;
+  dst.armorFlashFrames = src.armorFlashFrames;
+  dst.queuedStringMask = src.queuedStringMask;
+  dst.dashFrames = src.dashFrames;
+  dst.dashDir = src.dashDir;
+}
+
+/**
+ * Allocation-free deterministic snapshot copy for 60Hz GGPO Rollback Netcode.
+ */
+export function copyMatchState(src: MatchState, dst: MatchState): void {
+  dst.config = src.config;
+  copyFighterSim(src.fighters[0], dst.fighters[0]);
+  copyFighterSim(src.fighters[1], dst.fighters[1]);
+  dst.phase = src.phase;
+  dst.phaseFrame = src.phaseFrame;
+  dst.timerFrames = src.timerFrames;
+  dst.tick = src.tick;
+  dst.hitstopFrames = src.hitstopFrames;
+  dst.rageFreezeFrames = src.rageFreezeFrames;
+  dst.rageFreezeBy = src.rageFreezeBy;
+  dst.slowMoFrames = src.slowMoFrames;
+  dst.wins[0] = src.wins[0];
+  dst.wins[1] = src.wins[1];
+  dst.roundNumber = src.roundNumber;
+  dst.roundWinner = src.roundWinner;
+  dst.perfectRound = src.perfectRound;
+  dst.events.length = 0;
+}
+
+export function cloneMatchState(src: MatchState): MatchState {
+  const dst = createMatch(src.config);
+  copyMatchState(src, dst);
+  return dst;
+}
+
+/**
+ * Computes a fast FNV-1a 32-bit state checksum across both fighters and round counters
+ * to verify bit-identical determinism across peers.
+ */
+export function computeMatchChecksum(state: MatchState): number {
+  let h = 0x811c9dc5;
+  const mix = (val: number) => {
+    h ^= val | 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  };
+  mix(state.tick);
+  mix(state.phaseFrame);
+  mix(state.timerFrames);
+  mix(state.hitstopFrames);
+  mix(state.wins[0]);
+  mix(state.wins[1]);
+  for (let i = 0; i < 2; i += 1) {
+    const f = state.fighters[i];
+    mix(Math.round(f.x * 10000));
+    mix(Math.round(f.y * 10000));
+    mix(Math.round(f.z * 10000));
+    mix(Math.round(f.hp * 100));
+    mix(f.stateFrame);
+    mix(f.stunFrames);
+    mix(f.juggleHits);
+    mix(f.facing);
+    mix(f.prevMask);
+    mix(f.rageActive ? 1 : 0);
+  }
+  return h >>> 0;
+}

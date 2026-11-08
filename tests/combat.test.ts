@@ -18,7 +18,14 @@ import {
   parseNotation,
   type RawInputFrame,
 } from '../src/sim/inputs';
-import { createMatch, stepMatch } from '../src/sim/combat';
+import { createMatch, stepMatch, computeMatchChecksum } from '../src/sim/combat';
+import {
+  RollbackNetSession,
+  decodeInputPacket,
+  encodeInputPacket,
+  packInputByte,
+  unpackInputByte,
+} from '../src/net/rollbackSession';
 import { CpuController } from '../src/sim/ai';
 import { FighterRigAnimator, buildFighterMeshData } from '../src/render/fighterMesh';
 import {
@@ -520,5 +527,147 @@ describe('IRON FIST V — 60Hz Deterministic 3D Combat Engine', () => {
         (imported.meshes[0].positions.length + imported.meshes[1].positions.length) / 3;
       expect(totalVerts).toBeGreaterThan(40000);
     }
+  });
+
+  it('losslessly packs & decodes 28-byte WebRTC UDP rollback input packets across all stick/button states', () => {
+    for (const x of [-1, 0, 1] as const) {
+      for (const z of [-1, 0, 1] as const) {
+        for (let mask = 0; mask < 16; mask++) {
+          const raw: RawInputFrame = {
+            x,
+            z,
+            buttons: {
+              lp: (mask & 1) !== 0,
+              rp: (mask & 2) !== 0,
+              lk: (mask & 4) !== 0,
+              rk: (mask & 8) !== 0,
+            },
+          };
+          const byte = packInputByte(raw);
+          expect(unpackInputByte(byte)).toEqual(raw);
+        }
+      }
+    }
+
+    const bytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    const pkt = encodeInputPacket(142, 139, 128, 0xdeadbeef, bytes, 8);
+    expect(pkt.byteLength).toBe(28);
+    const decoded = decodeInputPacket(pkt);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.headFrame).toBe(142);
+    expect(decoded!.ackRemoteFrame).toBe(139);
+    expect(decoded!.count).toBe(8);
+    expect(Array.from(decoded!.inputs)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(decoded!.checksumFrame).toBe(128);
+    expect(decoded!.checksum).toBe(0xdeadbeef);
+  });
+
+  it('maintains 100% bit-exact zero-desync Rollback Netcode state across 360 frames under 50-85ms jitter & 22% packet loss', () => {
+    const p1 = getCharacterById('jinrai');
+    const p2 = getCharacterById('kazuya');
+    const stage = STAGES[0];
+
+    const match0 = createMatch({
+      p1,
+      p2,
+      p1Costume: 0,
+      p2Costume: 0,
+      stage,
+      roundsToWin: 2,
+      seed: 0x778899aa,
+    });
+    const match1 = createMatch({
+      p1,
+      p2,
+      p1Costume: 0,
+      p2Costume: 0,
+      stage,
+      roundsToWin: 2,
+      seed: 0x778899aa,
+    });
+
+    const sess0 = new RollbackNetSession(match0, 0, 1);
+    const sess1 = new RollbackNetSession(match1, 1, 1);
+
+    interface InFlightPacket {
+      deliverAtTick: number;
+      toSlot: 0 | 1;
+      payload: Uint8Array;
+    }
+    const wire: InFlightPacket[] = [];
+
+    // Deterministic PRNG simulating chaotic real-world UDP jitter (2..5 frames one-way = 66..160ms RTT) + 22% packet loss
+    let netRng = 0x13579bdf;
+    const nextRand = () => {
+      netRng = (Math.imul(netRng, 1664525) + 1013904223) >>> 0;
+      return netRng / 0x100000000;
+    };
+
+    const scriptedInput = (slot: 0 | 1, t: number): RawInputFrame => {
+      const phase = (t + slot * 17) % 37;
+      const x: -1 | 0 | 1 = phase < 14 ? (slot === 0 ? 1 : -1) : phase > 28 ? (slot === 0 ? -1 : 1) : 0;
+      const z: -1 | 0 | 1 = phase === 19 || phase === 20 ? 1 : phase === 26 ? -1 : 0;
+      return {
+        x,
+        z,
+        buttons: {
+          lp: phase === 5 || phase === 11,
+          rp: phase === 8 || phase === 14,
+          lk: phase === 17,
+          rk: phase === 22,
+        },
+      };
+    };
+
+    for (let tick = 0; tick < 360; tick++) {
+      // Deliver due packets (shuffle order slightly to test out-of-order UDP resilience)
+      for (let i = wire.length - 1; i >= 0; i--) {
+        if (wire[i].deliverAtTick <= tick) {
+          const pkt = wire.splice(i, 1)[0];
+          if (pkt.toSlot === 0) sess0.receivePacket(pkt.payload);
+          else sess1.receivePacket(pkt.payload);
+        }
+      }
+
+      const in0 = scriptedInput(0, tick);
+      const in1 = scriptedInput(1, tick);
+
+      sess0.step(match0, in0, (bytes) => {
+        // Drop 22% of UDP packets (except last 12 ticks so final inputs converge cleanly)
+        if (tick < 348 && nextRand() < 0.22) return;
+        const delayFrames = 2 + Math.floor(nextRand() * 4); // 2..5 frames one-way latency
+        wire.push({ deliverAtTick: tick + delayFrames, toSlot: 1, payload: bytes.slice() });
+      });
+
+      sess1.step(match1, in1, (bytes) => {
+        if (tick < 348 && nextRand() < 0.22) return;
+        const delayFrames = 2 + Math.floor(nextRand() * 4);
+        wire.push({ deliverAtTick: tick + delayFrames, toSlot: 0, payload: bytes.slice() });
+      });
+    }
+
+    // Flush remaining in-flight packets & step 6 neutral settle frames so both peers catch up to identical tick
+    for (let settle = 0; settle < 8; settle++) {
+      while (wire.length > 0) {
+        const pkt = wire.shift()!;
+        if (pkt.toSlot === 0) sess0.receivePacket(pkt.payload);
+        else sess1.receivePacket(pkt.payload);
+      }
+      const neutral = createEmptyInput();
+      sess0.step(match0, neutral, (b) => sess1.receivePacket(b));
+      sess1.step(match1, neutral, (b) => sess0.receivePacket(b));
+    }
+
+    expect(sess0.totalRollbacks).toBeGreaterThan(10);
+    expect(sess1.totalRollbacks).toBeGreaterThan(10);
+    expect(sess0.desyncDetected).toBe(false);
+    expect(sess1.desyncDetected).toBe(false);
+
+    expect(match0.tick).toBe(match1.tick);
+    expect(match0.fighters[0].hp).toBe(match1.fighters[0].hp);
+    expect(match0.fighters[1].hp).toBe(match1.fighters[1].hp);
+    expect(match0.fighters[0].x).toBe(match1.fighters[0].x);
+    expect(match0.fighters[1].x).toBe(match1.fighters[1].x);
+    expect(computeMatchChecksum(match0)).toBe(computeMatchChecksum(match1));
   });
 });

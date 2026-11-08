@@ -25,6 +25,7 @@
             <div class="brand-kicker">KING OF IRON FIST</div>
             <h1 class="brand-logo">IRON FIST <span>V</span></h1>
             <div class="brand-slash"></div>
+            <div id="home-online-pill" class="online-status-pill">ONLINE: SCANNING...</div>
           </div>
 
           <nav class="blade-menu" aria-label="Main Menu">
@@ -56,13 +57,88 @@
             </button>
             <button id="btn-mode-multi" class="blade-btn is-disabled" disabled aria-disabled="true">
               <span class="blade-label">MULTIPLAYER</span>
-              <span class="blade-lock-tag">LOCKED</span>
+              <span id="multi-lock-tag" class="blade-lock-tag">1 ACTIVE · WAITING</span>
             </button>
             <button id="btn-mode-training" class="blade-btn">
               <span class="blade-label">TRAINING MODE</span>
               <span class="blade-sub">PRACTICE DOJO</span>
             </button>
           </nav>
+
+          <div id="multi-seeking-bar" class="multi-seeking-bar hidden">
+            <span id="multi-seeking-text">CHALLENGE SENT — WAITING FOR PLAYER...</span>
+            <button id="btn-multi-cancel-seek" class="small-blade-btn">CANCEL</button>
+          </div>
+
+          <div class="multi-room-row">
+            <span class="room-label">LOBBY CHANNEL:</span>
+            <input
+              id="input-room-code"
+              class="room-code-input"
+              type="text"
+              maxlength="8"
+              value="PUBLIC"
+              aria-label="Lobby Channel Code"
+            />
+            <button id="btn-room-apply" class="small-blade-btn">JOIN</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 2B. ONLINE STEP 1: RANDOM 2-MAP VOTE ==================== -->
+      <section id="screen-mp-vote" class="ui-screen arena-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-mp-vote-leave" class="nav-back-btn">LEAVE</button>
+          <div class="top-nav-heading">
+            <span id="mp-vote-subtag" class="step-tag">ONLINE VERSUS // BOTH PLAYERS MUST VOTE</span>
+            <h2>VOTE ARENA (2 RANDOM OPTIONS)</h2>
+          </div>
+          <div id="mp-vote-timer" class="vote-timer-pill">15s</div>
+        </header>
+
+        <div id="mp-vote-banner" class="mp-vote-banner">CLICK ONE OF THE 2 RANDOM ARENAS TO CAST YOUR VOTE</div>
+
+        <div class="mp-vote-dock">
+          <div id="mp-vote-cards" class="mp-vote-grid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 2C. ONLINE STEP 2: SYNCED CHARACTER SELECT ==================== -->
+      <section id="screen-mp-fighter" class="ui-screen fighter-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-mp-fighter-leave" class="nav-back-btn">LEAVE</button>
+          <div class="top-nav-heading">
+            <span id="mp-fighter-arena-tag" class="step-tag">ARENA: DRAGON'S NEST SHRINE</span>
+            <h2>ONLINE FIGHTER SELECT</h2>
+          </div>
+          <button id="btn-mp-lock-fighter" class="action-cta-btn">LOCK IN</button>
+        </header>
+
+        <!-- Player 1 Bio Plate (Left) -->
+        <aside class="fighter-bio-plate mp-p1-plate">
+          <div class="bio-header-row">
+            <span id="mp-p1-role" class="bio-slot-tag">PLAYER 1</span>
+            <button id="btn-mp-costume" class="small-blade-btn">OUTFIT 1</button>
+          </div>
+          <h3 id="mp-p1-name" class="bio-name">JINRAI KAZAMA</h3>
+          <div id="mp-p1-style" class="bio-style">Traditional Karate // Japan</div>
+          <div id="mp-p1-ready" class="mp-ready-badge">SELECTING...</div>
+        </aside>
+
+        <!-- Player 2 Bio Plate (Right) -->
+        <aside class="fighter-bio-plate mp-p2-plate">
+          <div class="bio-header-row">
+            <span id="mp-p2-role" class="bio-slot-tag p2-tag">PLAYER 2</span>
+            <span id="mp-ping-badge" class="mp-ping-chip">P2P READY</span>
+          </div>
+          <h3 id="mp-p2-name" class="bio-name">KAZUMA MISHIMA</h3>
+          <div id="mp-p2-style" class="bio-style">Mishima Karate // Japan</div>
+          <div id="mp-p2-ready" class="mp-ready-badge">SELECTING...</div>
+        </aside>
+
+        <!-- Synced 12-Fighter Roster Grid -->
+        <div class="roster-dock">
+          <div id="mp-roster-grid" class="roster-grid"></div>
         </div>
       </section>
 
@@ -212,6 +288,7 @@
           <div class="hud-clock-box">
             <div id="hud-timer" class="hud-timer">60</div>
             <div id="hud-stage-badge" class="hud-stage-tag">1V1 // MOONLIT WILDERNESS</div>
+            <div id="hud-net-pill" class="hud-net-pill hidden">P2P UDP · 16ms · RB 0F</div>
           </div>
 
           <!-- Player 2 Health -->
@@ -402,6 +479,18 @@
           </div>
         </div>
       </section>
+
+      <!-- ==================== GLOBAL ONLINE CHALLENGE TOAST ==================== -->
+      <div id="online-challenge-toast" class="challenge-toast hidden" role="alert">
+        <div class="challenge-toast-info">
+          <div class="challenge-kicker">CHALLENGER APPROACHING // ONLINE P2P</div>
+          <div id="challenge-toast-desc" class="challenge-desc">Active player wants to fight!</div>
+        </div>
+        <div class="challenge-toast-actions">
+          <button id="btn-challenge-accept" class="action-cta-btn compact-cta">ACCEPT</button>
+          <button id="btn-challenge-decline" class="small-blade-btn">DECLINE</button>
+        </div>
+      </div>
 
       <!-- ==================== EXIT CONFIRMATION MODAL ==================== -->
       <section id="modal-exit" class="modal-backdrop hidden">

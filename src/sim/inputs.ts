@@ -128,6 +128,13 @@ export class CommandInputBuffer {
     this.length = 0;
   }
 
+  cloneFrom(other: CommandInputBuffer): void {
+    this.dirs.set(other.dirs);
+    this.pressed.set(other.pressed);
+    this.held.set(other.held);
+    this.length = other.length;
+  }
+
   push(dir: NumpadDir, pressedMask: number, heldMask: number): void {
     if (this.length < BUFFER_CAPACITY) {
       this.dirs[this.length] = dir;
