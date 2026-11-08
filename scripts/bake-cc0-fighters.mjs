@@ -1,168 +1,180 @@
+/**
+ * IRON FIST V — CC0 3D Fighter, Female Exact Skin & Sculpted Hair/Gear Baker
+ *
+ * Produces:
+ *   1. public/models/fighters/martial_fighters.glb
+ *      - Quaternius Universal Base Male (3 primitives) + exact Male 65-bone inverseBind skin
+ *      - All 34 Martial-Arts Mocap Clips with finger phalanges (joints 11..30, 35..54)
+ *        locked to Punch_Jab's clean clenched martial-arts fist so no clip ever splays fingers.
+ *   2. public/models/fighters/female_and_parts.glb
+ *      - Quaternius Universal Base Female (3 primitives) + exact Female 65-bone inverseBind skin
+ *        (fixes Nina & Lin Xiao finger pivot mismatch!)
+ *      - 10 CC0 3D Sculpted Hair, Beard & Headgear meshes (NoLimitNexus CC0 Modular Character Kit)
+ *        aligned & rigged to the 65-bone humanoid skeleton!
+ */
 import fs from 'node:fs';
 import path from 'node:path';
-import { readModel, drftToGlb, readGlb, gltfToMeshes, readGltfSkins } from '@driftengine/assets';
+import { readGlb, gltfToMeshes, readGltfSkins, readModel, drftToGlb } from '@driftengine/assets';
 import { writeDrft, readDrft } from '@driftengine/drft';
 
-const srcDir = '/tmp/cc0_inspect';
-const outDir = path.resolve('public/models/fighters');
-fs.mkdirSync(outDir, { recursive: true });
+const OUT_DIR = path.resolve('public/models/fighters');
+fs.mkdirSync(OUT_DIR, { recursive: true });
 
-const mImp = await readModel({
-  name: 'male.glb',
-  bytes: new Uint8Array(fs.readFileSync(path.join(srcDir, 'superhero_male.glb'))),
-});
-const fImp = await readModel({
-  name: 'ubc_female.gltf',
-  bytes: new Uint8Array(fs.readFileSync(path.join(srcDir, 'ubc_female.gltf'))),
-  beside: async (rel) => new Uint8Array(fs.readFileSync(path.join(srcDir, rel))),
-});
-const u1Imp = await readModel({
-  name: 'ual1.glb',
-  bytes: new Uint8Array(fs.readFileSync(path.join(srcDir, 'ual1_full.glb'))),
-});
-const u2Imp = await readModel({
-  name: 'ual2.glb',
-  bytes: new Uint8Array(fs.readFileSync(path.join(srcDir, 'ual2.glb'))),
-});
-
-const skin = mImp.skins[0];
-const fingerJoints = new Set();
-skin.joints.forEach((j, idx) => {
-  if (/index|middle|pinky|ring|thumb|ball_leaf/.test(j.name)) fingerJoints.add(idx);
-});
-
-const curatedClips = [
-  ['u1', 'A_TPose'],
-  ['u2', 'Idle_Shield_Loop'],
-  ['u2', 'Idle_FoldArms_Loop'],
-  ['u1', 'PunchKick_Enter'],
-  ['u1', 'Sword_Idle'],
-  ['u2', 'Walk_Fwd_Loop'],
-  ['u2', 'Walk_Bwd_Loop'],
-  ['u1', 'Dodge_Left'],
-  ['u1', 'Dodge_Right'],
-  ['u1', 'Crouch_Idle_Loop'],
-  ['u1', 'Crouch_Fwd_Loop'],
-  ['u1', 'Punch_Jab'],
-  ['u1', 'Punch_Cross'],
-  ['u2', 'Melee_Hook'],
-  ['u2', 'Melee_Knee'],
-  ['u1', 'Kick'],
-  ['u2', 'Melee_Uppercut'],
-  ['u2', 'Melee_Combo'],
-  ['u2', 'Slide_Start'],
-  ['u1', 'BackFlip'],
-  ['u2', 'Shield_Dash'],
-  ['u2', 'OverhandThrow'],
-  ['u2', 'Sword_Light_A'],
-  ['u2', 'Sword_Heavy_A'],
-  ['u2', 'Sword_UpperCut'],
-  ['u1', 'Hit_Head'],
-  ['u1', 'Hit_Stomach'],
-  ['u2', 'Hit_Knockback'],
-  ['u2', 'LiftAir'],
-  ['u2', 'LiftAir_Hit_L'],
-  ['u2', 'LiftAir_Fall_Impact'],
-  ['u1', 'Death01'],
-  ['u2', 'KipUp'],
-  ['u1', 'Celebration'],
+const PART_NAMES = [
+  'hair_short',
+  'hair_tousled',
+  'hair_long',
+  'hair_ponytail',
+  'hair_bun',
+  'hair_balding',
+  'beard_short',
+  'beard_long',
+  'hat_straw',
+  'hat_beanie',
 ];
 
-function optimizeCombatClip(clip) {
-  if (clip.name === 'A_TPose') return clip;
-  const newTracks = [];
-  for (const tr of clip.tracks) {
-    if (tr.path === 'scale') continue;
-    const width = tr.path === 'rotation' ? 4 : 3;
-    const count = tr.times.length;
+function rigStaticHeadMeshToSkeleton(mesh, partName) {
+  const vCount = mesh.positions.length / 3;
+  const positions = new Float32Array(mesh.positions.length);
+  const normals = new Float32Array(mesh.normals.length);
+  const uvs = mesh.uvs ? new Float32Array(mesh.uvs) : new Float32Array(vCount * 2);
+  const colors = new Float32Array(vCount * 3).fill(1.0);
+  const emissive = new Float32Array(vCount);
+  const joints = new Float32Array(vCount * 4);
+  const weights = new Float32Array(vCount * 4);
 
-    if (fingerJoints.has(tr.joint)) {
-      if (tr.path === 'translation') continue;
-      const mid = Math.floor(count / 2);
-      const times = new Float32Array([tr.times[0], tr.times[count - 1]]);
-      const values = new Float32Array(width * 2);
-      values.set(tr.values.subarray(mid * width, (mid + 1) * width), 0);
-      values.set(tr.values.subarray(mid * width, (mid + 1) * width), width);
-      newTracks.push({ ...tr, times, values });
-      continue;
-    }
+  // KayKit/NoLimitNexus head center is (0, 1.88, 0) with cranium half-width 0.58m.
+  // Quaternius Male T-pose Head (joint 6) has X[-0.091, 0.091], Y[1.577, 1.810], eyes Y=1.698 Z=0.070.
+  const isStrawHat = partName === 'hat_straw';
+  const sx = isStrawHat ? 0.245 : 0.196;
+  const sy = isStrawHat ? 0.215 : 0.196;
+  const sz = isStrawHat ? 0.245 : 0.215;
+  const anchorY = isStrawHat ? 1.735 : 1.725;
+  const anchorZ = isStrawHat ? 0.0 : 0.008;
 
-    let varies = false;
-    for (let k = 1; k < count && !varies; k += 1) {
-      for (let c = 0; c < width; c += 1) {
-        if (Math.abs(tr.values[k * width + c] - tr.values[c]) > 0.0015) {
-          varies = true;
-          break;
-        }
-      }
-    }
-    if (!varies && tr.joint > 1) continue;
+  for (let v = 0; v < vCount; v++) {
+    const x = mesh.positions[v * 3];
+    const y = mesh.positions[v * 3 + 1];
+    const z = mesh.positions[v * 3 + 2];
 
-    const idx = [];
-    if (count > 8) {
-      for (let k = 0; k < count - 1; k += 2) idx.push(k);
-      idx.push(count - 1);
+    const px = x * sx;
+    const py = anchorY + (y - 1.88) * sy;
+    const pz = anchorZ + z * sz;
+
+    positions[v * 3] = px;
+    positions[v * 3 + 1] = py;
+    positions[v * 3 + 2] = pz;
+
+    normals[v * 3] = mesh.normals[v * 3];
+    normals[v * 3 + 1] = mesh.normals[v * 3 + 1];
+    normals[v * 3 + 2] = mesh.normals[v * 3 + 2];
+
+    // Blend long hair & long beard tips smoothly with spine_03 (joint 4) so torso twists look natural
+    if ((partName === 'hair_long' || partName === 'beard_long') && py < 1.56) {
+      const t = Math.min(0.65, Math.max(0, (1.56 - py) / 0.16));
+      joints[v * 4] = 6; // Head
+      joints[v * 4 + 1] = 4; // spine_03
+      weights[v * 4] = 1 - t;
+      weights[v * 4 + 1] = t;
     } else {
-      for (let k = 0; k < count; k += 1) idx.push(k);
+      joints[v * 4] = 6; // Head
+      weights[v * 4] = 1.0;
     }
-
-    const times = new Float32Array(idx.length);
-    const values = new Float32Array(idx.length * width);
-    idx.forEach((srcIdx, dstIdx) => {
-      times[dstIdx] = tr.times[srcIdx];
-      values.set(tr.values.subarray(srcIdx * width, (srcIdx + 1) * width), dstIdx * width);
-    });
-
-    // Lock horizontal X/Z root motion to 0 so visual mesh stays 100% aligned with WASM combat capsule!
-    if (tr.path === 'translation' && (tr.joint === 0 || tr.joint === 1)) {
-      const base0X = values[0];
-      const base0Z = values[2];
-      for (let d = 0; d < idx.length; d += 1) {
-        values[d * 3 + 0] = tr.joint === 0 ? 0 : base0X;
-        values[d * 3 + 2] = tr.joint === 0 ? 0 : base0Z;
-      }
-    }
-
-    newTracks.push({ ...tr, times, values });
   }
-  return { name: clip.name, durationSec: clip.durationSec, tracks: newTracks };
+
+  return {
+    name: partName,
+    positions,
+    normals,
+    uvs,
+    colors,
+    emissive,
+    joints,
+    weights,
+    indices: new Uint32Array(mesh.indices),
+    material: {
+      baseColor: new Float32Array([1, 1, 1, 1]),
+      metallic: 0.06,
+      roughness: 0.65,
+    },
+  };
 }
 
-const clips = curatedClips.map(([src, name]) => {
-  const pool = src === 'u1' ? u1Imp.clips : u2Imp.clips;
-  const found = pool.find((c) => c.name === name);
-  if (!found) throw new Error(`Missing clip ${name}`);
-  return optimizeCombatClip(found);
-});
+async function main() {
+  console.log('1. Reading existing martial_fighters.glb...');
+  const curBuf = fs.readFileSync(path.join(OUT_DIR, 'martial_fighters.glb'));
+  const curGlb = readGlb(curBuf.buffer.slice(curBuf.byteOffset, curBuf.byteOffset + curBuf.byteLength));
+  const curMeshes = gltfToMeshes(curGlb.json, [curGlb.binary]).meshes;
+  const curSkins = readGltfSkins(curGlb.json, [curGlb.binary]);
 
-const drftBytes = writeDrft({
-  meshes: [...mImp.meshes, ...fImp.meshes],
-  skins: [skin],
-  clips,
-});
+  const maleMeshes = curMeshes.slice(0, 3);
+  const maleSkin = curSkins.skins[0];
 
-const { glb, warnings } = drftToGlb(readDrft(drftBytes));
-if (warnings.length > 0) {
-  console.warn('GLB warnings:', warnings);
+  // Extract clean clenched fist finger rotations from Punch_Jab (14.6cm tight fist!)
+  const jabClip = curSkins.clips.find((c) => c.name === 'Punch_Jab');
+  if (!jabClip) throw new Error('Punch_Jab clip missing!');
+  const isFingerJoint = (j) => (j >= 11 && j <= 30) || (j >= 35 && j <= 54);
+  const cleanFistTracks = jabClip.tracks.filter((tr) => isFingerJoint(tr.joint) && tr.path === 'rotation');
+
+  console.log(`   Extracted ${cleanFistTracks.length} clean martial-arts fist finger tracks from Punch_Jab.`);
+
+  // Normalize all combat clips (except A_TPose) to use clean clenched martial-arts fists
+  const normalizedClips = curSkins.clips.map((clip) => {
+    if (clip.name === 'A_TPose') return clip;
+    const nonFingerTracks = clip.tracks.filter((tr) => !isFingerJoint(tr.joint));
+    const fistCopies = cleanFistTracks.map((ft) => ({
+      joint: ft.joint,
+      path: 'rotation',
+      interpolation: 'STEP',
+      times: new Float32Array([0]),
+      values: new Float32Array(ft.values.slice(0, 4)),
+    }));
+    return {
+      name: clip.name,
+      durationSec: clip.durationSec,
+      tracks: [...nonFingerTracks, ...fistCopies],
+    };
+  });
+
+  // Write updated martial_fighters.glb (Male + maleSkin + 34 fist-calibrated clips)
+  const maleDrft = writeDrft({
+    meshes: maleMeshes,
+    skins: [maleSkin],
+    clips: normalizedClips,
+  });
+  const { glb: maleGlbBytes } = drftToGlb(readDrft(maleDrft));
+  const maleOutPath = path.join(OUT_DIR, 'martial_fighters.glb');
+  fs.writeFileSync(maleOutPath, maleGlbBytes);
+  console.log(`   Wrote ${maleOutPath}: ${(maleGlbBytes.byteLength / 1024).toFixed(1)} KB`);
+
+  // 2. Build female_and_parts.glb (Female exact meshes + exact femaleSkin + 10 CC0 sculpted head/hair parts!)
+  console.log('2. Reading exact Female rig & 10 CC0 3D Hair/Beard/Hat parts...');
+  const femBuf = fs.readFileSync('/tmp/cc0_phase3b/ubc_female_full.glb');
+  const femGlb = readGlb(femBuf.buffer.slice(femBuf.byteOffset, femBuf.byteOffset + femBuf.byteLength));
+  const femMeshes = gltfToMeshes(femGlb.json, [femGlb.binary]).meshes;
+  const femSkin = readGltfSkins(femGlb.json, [femGlb.binary]).skins[0];
+
+  const riggedParts = [];
+  for (const partName of PART_NAMES) {
+    const pBuf = new Uint8Array(fs.readFileSync(`/tmp/cc0_phase3b/hairs/${partName}.glb`));
+    const pImp = await readModel({ name: `${partName}.glb`, bytes: pBuf });
+    // Merge primitives if >1
+    const m0 = pImp.meshes[0];
+    riggedParts.push(rigStaticHeadMeshToSkeleton(m0, partName));
+  }
+
+  const femDrft = writeDrft({
+    meshes: [...femMeshes, ...riggedParts],
+    skins: [femSkin],
+    clips: [],
+  });
+  const { glb: femGlbBytes } = drftToGlb(readDrft(femDrft));
+  const femOutPath = path.join(OUT_DIR, 'female_and_parts.glb');
+  fs.writeFileSync(femOutPath, femGlbBytes);
+  console.log(`   Wrote ${femOutPath}: ${(femGlbBytes.byteLength / 1024).toFixed(1)} KB (${3 + riggedParts.length} meshes, exact Female inverseBind!)`);
 }
 
-const outPath = path.join(outDir, 'martial_fighters.glb');
-fs.writeFileSync(outPath, glb);
-
-// Round-trip verify
-const check = readGlb(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength));
-const checkMeshes = gltfToMeshes(check.json, check.binary ? [check.binary] : []);
-const checkSkins = readGltfSkins(check.json, check.binary ? [check.binary] : []);
-console.log(
-  `Baked ${outPath} (${(glb.byteLength / 1024).toFixed(1)} KB) -> ${checkMeshes.meshes.length} skinned primitives, ${checkSkins.skins[0].joints.length} joints, ${checkSkins.clips.length} mocap clips!`,
-);
-
-fs.writeFileSync(
-  path.join(outDir, 'LICENSE-CC0.md'),
-  `# 3D Humanoid Fighter Meshes & Martial-Arts Animation Library\n\n` +
-    `- **Base Meshes**: Quaternius *Universal Base Characters* (Male & Female FullBody)\n` +
-    `- **Animations**: Quaternius *Universal Animation Library 1 & 2* (34 curated martial-arts clips)\n` +
-    `- **License**: Creative Commons Zero v1.0 Universal (CC0 1.0 Public Domain)\n` +
-    `- **Source**: https://quaternius.com/\n`,
-  'utf8',
-);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

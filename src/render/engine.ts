@@ -44,6 +44,7 @@ import {
   HUMANOID_JOINT_HAND_R,
   MocapFighterAnimator,
   buildHumanoidCharacterMesh,
+  getCharacterBodyScale,
   getHumanoidPack,
   loadHumanoidPack,
   onHumanoidPackReady,
@@ -636,21 +637,24 @@ export class FightSceneEngine implements SceneEngineLike {
         const f = state.fighters[i];
         if (f.rageActive && state.tick % 6 === i * 3) {
           if (this.mocapAnimators) {
+            const bs = getCharacterBodyScale(f.char.id);
             this.mocapAnimators[i].readJointArenaPos(
               HUMANOID_JOINT_HAND_R,
               f.x,
-              f.y,
+              Math.max(0, f.y),
               f.z,
               f.facing,
               this.scratchA,
+              bs,
             );
             this.mocapAnimators[i].readJointArenaPos(
               HUMANOID_JOINT_CHEST,
               f.x,
-              f.y,
+              Math.max(0, f.y),
               f.z,
               f.facing,
               this.scratchB,
+              bs,
             );
           } else {
             this.animators[i].readJointArenaPos(
@@ -845,7 +849,9 @@ export class FightSceneEngine implements SceneEngineLike {
 
       const isShortLandscape = !isPortrait && this.canvas.clientHeight <= 560;
       const heroX = isPortrait ? 0 : isShortLandscape ? 0.85 : 0.72;
+      const bs0 = this.mocapAnimators ? getCharacterBodyScale(p1.id) : ([1, 1, 1] as const);
       this.fighterNodes[0].setPosition(heroX, 0, 0.4);
+      this.fighterNodes[0].setScale(bs0[0], bs0[1], bs0[2]);
       this.fighterNodes[0].setRotationAxisAngle(
         0,
         1,
@@ -901,11 +907,15 @@ export class FightSceneEngine implements SceneEngineLike {
       }
 
       const centerOffset = isPortrait ? 0 : 0.65;
+      const bs0 = this.mocapAnimators ? getCharacterBodyScale(p1.id) : ([1, 1, 1] as const);
+      const bs1 = this.mocapAnimators ? getCharacterBodyScale(p2.id) : ([1, 1, 1] as const);
       this.fighterNodes[0].setPosition(centerOffset - 1.25, 0, 0.2);
+      this.fighterNodes[0].setScale(bs0[0], bs0[1], bs0[2]);
       this.fighterNodes[0].setRotationAxisAngle(0, 1, 0, Math.PI * 0.36);
       this.fighterNodes[0].updateWorld();
 
       this.fighterNodes[1].setPosition(centerOffset + 1.25, 0, 0.2);
+      this.fighterNodes[1].setScale(bs1[0], bs1[1], bs1[2]);
       this.fighterNodes[1].setRotationAxisAngle(0, 1, 0, -Math.PI * 0.36);
       this.fighterNodes[1].updateWorld();
 
@@ -964,7 +974,9 @@ export class FightSceneEngine implements SceneEngineLike {
       this.animators[idx].update(f, this.clockSec);
     }
     const node = this.fighterNodes[idx];
-    node.setPosition(x, y, z);
+    const bs = this.mocapAnimators ? getCharacterBodyScale(f.char.id) : ([1, 1, 1] as const);
+    node.setPosition(x, Math.max(0, y), z);
+    node.setScale(bs[0], bs[1], bs[2]);
     const dx = oppX - x;
     const dz = oppZ - z;
     const yaw =

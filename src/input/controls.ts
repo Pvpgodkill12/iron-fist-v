@@ -186,13 +186,17 @@ export class UnifiedInputManager {
       if (dist < DEADZONE_PX) {
         this.touchDirX = 0;
         this.touchDirZ = 0;
+        stickZone.dataset.dirX = '0';
+        stickZone.dataset.dirZ = '0';
         return;
       }
       const angle = Math.atan2(-dy, dx); // +Y up
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      this.touchDirX = cos > 0.38 ? 1 : cos < -0.38 ? -1 : 0;
-      this.touchDirZ = sin > 0.38 ? 1 : sin < -0.38 ? -1 : 0;
+      this.touchDirX = cos > 0.36 ? 1 : cos < -0.36 ? -1 : 0;
+      this.touchDirZ = sin > 0.36 ? 1 : sin < -0.36 ? -1 : 0;
+      stickZone.dataset.dirX = String(this.touchDirX);
+      stickZone.dataset.dirZ = String(this.touchDirZ);
     };
 
     stickZone.addEventListener('pointerdown', (e) => {
@@ -223,6 +227,8 @@ export class UnifiedInputManager {
       this.stickPointerId = null;
       this.touchDirX = 0;
       this.touchDirZ = 0;
+      stickZone.dataset.dirX = '0';
+      stickZone.dataset.dirZ = '0';
       stickZone.classList.remove('active');
       stickKnob.style.transform = 'translate(-50%, -50%)';
     };

@@ -1013,8 +1013,8 @@ select {
 }
 
 .touch-stick-zone {
-  width: 148px;
-  height: 148px;
+  width: 152px;
+  height: 152px;
   pointer-events: auto;
   touch-action: none;
   display: flex;
@@ -1024,36 +1024,53 @@ select {
 
 .stick-ring {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: 138px;
+  height: 138px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(22, 22, 28, 0.72), rgba(8, 8, 12, 0.86));
-  border: 2px solid rgba(220, 20, 40, 0.5);
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.8));
 }
 
-.dir-hint {
+.stick-gate-svg {
   position: absolute;
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.45);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
-.dir-hint.up { top: 6px; left: 50%; transform: translateX(-50%); }
-.dir-hint.down { bottom: 6px; left: 50%; transform: translateX(-50%); }
-.dir-hint.left { left: 7px; top: 50%; transform: translateY(-50%); }
-.dir-hint.right { right: 7px; top: 50%; transform: translateY(-50%); }
+
+.gate-chevron {
+  color: rgba(255, 255, 255, 0.36);
+  transition: color 0.08s ease, filter 0.08s ease;
+}
+
+.touch-stick-zone[data-dir-z="1"] .chev-up,
+.touch-stick-zone[data-dir-z="-1"] .chev-down,
+.touch-stick-zone[data-dir-x="-1"] .chev-left,
+.touch-stick-zone[data-dir-x="1"] .chev-right {
+  color: #ff2b3e;
+  filter: drop-shadow(0 0 6px #ff2b3e);
+}
 
 .stick-knob {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 52px;
-  height: 52px;
+  width: 54px;
+  height: 54px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ff2b3e, #8f0a18);
-  border: 2px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+  filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.85));
+}
+
+.knob-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.touch-stick-zone.active .stick-knob {
+  filter: drop-shadow(0 0 12px rgba(255, 43, 62, 0.7)) drop-shadow(0 5px 12px rgba(0, 0, 0, 0.9));
 }
 
 .touch-buttons-zone {
@@ -1071,61 +1088,137 @@ select {
 }
 
 .touch-macro {
-  padding: 7px 10px;
-  background: rgba(14, 14, 18, 0.9);
-  border: 1.5px solid rgba(255, 255, 255, 0.24);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, rgba(28, 30, 40, 0.94), rgba(10, 11, 16, 0.96));
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
   color: #fff;
-  font-size: 0.65rem;
+  font-size: 0.64rem;
   font-weight: 900;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.72);
+  transition: transform 0.06s ease, box-shadow 0.08s ease;
 }
 
-.special-macro,
+.macro-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.special-macro {
+  border-color: #ff4d5e;
+  background: linear-gradient(180deg, rgba(155, 16, 30, 0.78), rgba(45, 8, 14, 0.95));
+  color: #ffd6da;
+}
+
 .launch-macro {
-  border-color: var(--red-bright);
-  background: rgba(140, 12, 24, 0.55);
+  border-color: #38bdf8;
+  background: linear-gradient(180deg, rgba(14, 92, 136, 0.75), rgba(8, 28, 46, 0.95));
+  color: #e0f2fe;
+}
+
+.grab-macro {
+  border-color: #fbbf24;
+  background: linear-gradient(180deg, rgba(120, 74, 12, 0.72), rgba(36, 22, 6, 0.95));
+  color: #fef3c7;
+}
+
+.rage-macro {
+  border-color: rgba(255, 70, 90, 0.65);
+  background: linear-gradient(180deg, rgba(95, 10, 20, 0.8), rgba(26, 5, 8, 0.95));
 }
 
 .rage-macro.rage-ready {
-  background: var(--red-core);
+  background: linear-gradient(180deg, #ff1e34, #8c0816);
   border-color: #fff;
-  box-shadow: 0 0 14px var(--red-bright);
+  box-shadow: 0 0 16px var(--red-bright);
+  animation: pulseFade 0.9s infinite ease-in-out;
 }
 
 .tekken-diamond {
   position: relative;
-  width: 146px;
-  height: 130px;
+  width: 156px;
+  height: 138px;
 }
 
 .limb-btn {
   position: absolute;
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
+  padding: 0;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  background: rgba(16, 16, 22, 0.92);
+  border: none;
+  background: transparent;
   color: #fff;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.8));
+  transition: transform 0.05s ease, filter 0.08s ease;
 }
 
-.limb-btn b { font-size: 1rem; line-height: 1; }
-.limb-btn small { font-size: 0.56rem; color: var(--txt-dim); }
+.limb-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
 
-.lp-btn { left: 8px; top: 26px; border-color: #d4d4dc; }
-.rp-btn { left: 66px; top: 2px; border-color: var(--red-bright); }
-.lk-btn { left: 22px; top: 72px; border-color: #9ca0ab; }
-.rk-btn { left: 82px; top: 52px; border-color: var(--red-core); }
+.limb-badge {
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0d0e14;
+  border: 1.5px solid rgba(255, 255, 255, 0.65);
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 15px;
+  text-align: center;
+  color: #fff;
+  pointer-events: none;
+}
 
-.limb-btn.pressed,
+.rp-btn .limb-badge,
+.rk-btn .limb-badge {
+  background: #b80d20;
+  border-color: #ffd6da;
+}
+
+.limb-tag {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.5rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+
+.lp-btn { left: 6px; top: 28px; }
+.rp-btn { left: 68px; top: 2px; }
+.lk-btn { left: 22px; top: 76px; }
+.rk-btn { left: 86px; top: 54px; }
+
+.limb-btn.pressed {
+  transform: scale(0.9);
+  filter: drop-shadow(0 0 14px #ff2b3e) brightness(1.3);
+}
+
 .touch-macro.pressed {
-  transform: scale(0.91);
-  background: var(--red-core);
-  border-color: #fff;
+  transform: scale(0.92);
+  filter: brightness(1.35);
+  box-shadow: 0 0 12px var(--red-bright);
 }
 
 /* ==================== MODALS (EXIT / PAUSE / POST-MATCH) ==================== */
@@ -1726,22 +1819,18 @@ select {
   }
 
   .touch-stick-zone {
-    width: 110px;
-    height: 110px;
+    width: 114px;
+    height: 114px;
   }
 
   .stick-ring {
-    width: 98px;
-    height: 98px;
+    width: 104px;
+    height: 104px;
   }
 
   .stick-knob {
-    width: 38px;
-    height: 38px;
-  }
-
-  .dir-hint {
-    font-size: 0.48rem;
+    width: 40px;
+    height: 40px;
   }
 
   .touch-buttons-zone {
@@ -1754,29 +1843,38 @@ select {
 
   .touch-macro {
     padding: 4px 7px;
-    font-size: 0.55rem;
+    font-size: 0.54rem;
+  }
+
+  .macro-icon {
+    width: 11px;
+    height: 11px;
   }
 
   .tekken-diamond {
-    width: 116px;
-    height: 100px;
+    width: 122px;
+    height: 106px;
   }
 
   .limb-btn {
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
   }
 
-  .limb-btn b {
-    font-size: 0.84rem;
+  .limb-badge {
+    min-width: 15px;
+    height: 15px;
+    line-height: 12px;
+    font-size: 0.52rem;
   }
 
-  .limb-btn small {
-    font-size: 0.48rem;
+  .limb-tag {
+    bottom: 4px;
+    font-size: 0.42rem;
   }
 
-  .lp-btn { left: 6px; top: 20px; }
-  .rp-btn { left: 52px; top: 2px; }
-  .lk-btn { left: 18px; top: 56px; }
-  .rk-btn { left: 66px; top: 40px; }
+  .lp-btn { left: 5px; top: 21px; }
+  .rp-btn { left: 54px; top: 2px; }
+  .lk-btn { left: 18px; top: 59px; }
+  .rk-btn { left: 68px; top: 42px; }
 }

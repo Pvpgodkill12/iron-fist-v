@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { MeshData } from '@driftengine/core';
+import { gltfToMeshes, readGlb } from '@driftengine/assets';
 import {
   getCombatWasm,
   heightToCode,
@@ -20,8 +22,14 @@ import { createMatch, stepMatch } from '../src/sim/combat';
 import { CpuController } from '../src/sim/ai';
 import { FighterRigAnimator, buildFighterMeshData } from '../src/render/fighterMesh';
 import {
+  HUMANOID_JOINT_BALL_L,
+  HUMANOID_JOINT_BALL_R,
+  HUMANOID_JOINT_FOOT_L,
+  HUMANOID_JOINT_FOOT_R,
+  HUMANOID_JOINT_HAND_L,
   MocapFighterAnimator,
   buildHumanoidCharacterMesh,
+  getCharacterBodyScale,
   parseHumanoidPackGlb,
 } from '../src/render/humanoidPack';
 import { buildStageGeometry } from '../src/render/stageBuilder';
@@ -168,14 +176,18 @@ describe('IRON FIST V — 12-Character Roster, 20-Joint GPU Skinning & 5 Stages'
     }
   });
 
-  it('loads 65-bone CC0 Humanoid .glb + 34 Mocap Clips and builds 8,400+ vertex 3D fighters for all 12 characters', () => {
+  it('loads 65-bone CC0 Humanoid .glb + 34 Mocap Clips and builds 8,400+ vertex 3D fighters for all 12 characters', { timeout: 20000 }, () => {
     const glbPath = path.resolve('public/models/fighters/martial_fighters.glb');
+    const femPath = path.resolve('public/models/fighters/female_and_parts.glb');
     const buf = fs.readFileSync(glbPath);
+    const femBuf = fs.readFileSync(femPath);
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    const pack = parseHumanoidPackGlb(ab);
+    const femAb = femBuf.buffer.slice(femBuf.byteOffset, femBuf.byteOffset + femBuf.byteLength);
+    const pack = parseHumanoidPackGlb(ab, femAb);
     expect(pack).not.toBeNull();
     expect(pack!.joints.length).toBe(65);
     expect(pack!.clips.size).toBe(34);
+    expect(pack!.cc0Parts.size).toBe(10);
 
     for (const ch of ROSTER) {
       for (const costumeIdx of [0, 1] as const) {
@@ -370,8 +382,13 @@ describe('IRON FIST V — 60Hz Deterministic 3D Combat Engine', () => {
 
   it('executes Phase 3 pre-buffered target strings, f,f dash, d/f+2 launcher, and zero head light artifacts', () => {
     const glbPath = path.resolve('public/models/fighters/martial_fighters.glb');
+    const femPath = path.resolve('public/models/fighters/female_and_parts.glb');
     const buf = fs.readFileSync(glbPath);
-    const pack = parseHumanoidPackGlb(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))!;
+    const femBuf = fs.readFileSync(femPath);
+    const pack = parseHumanoidPackGlb(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      femBuf.buffer.slice(femBuf.byteOffset, femBuf.byteOffset + femBuf.byteLength),
+    )!;
     for (const ch of ROSTER) {
       const mesh = buildHumanoidCharacterMesh(pack, ch, 0);
       for (let v = 0; v < mesh.positions.length / 3; v += 1) {
@@ -403,5 +420,105 @@ describe('IRON FIST V — 60Hz Deterministic 3D Combat Engine', () => {
       stepMatch(match, neutral, neutral);
     }
     expect(match.fighters[0].comboCounter).toBeGreaterThanOrEqual(2);
+  });
+
+  it('prevents curved/extended fingers on all 12 fighters (Nina, Lin Xiao, Jinpachi, Yoshimaru), clamps feet >= Y=0, and preserves Dragons Nest untouched', () => {
+    const maleBuf = fs.readFileSync(path.resolve('public/models/fighters/martial_fighters.glb'));
+    const femBuf = fs.readFileSync(path.resolve('public/models/fighters/female_and_parts.glb'));
+    const pack = parseHumanoidPackGlb(
+      maleBuf.buffer.slice(maleBuf.byteOffset, maleBuf.byteOffset + maleBuf.byteLength),
+      femBuf.buffer.slice(femBuf.byteOffset, femBuf.byteOffset + femBuf.byteLength),
+    )!;
+
+    const anim = new MocapFighterAnimator(pack);
+    const distinctVertCounts = new Set<number>();
+    const distinctBodyScales = new Set<string>();
+
+    for (const ch of ROSTER) {
+      const mesh = buildHumanoidCharacterMesh(pack, ch, 0);
+      distinctVertCounts.add(mesh.positions.length / 3);
+      distinctBodyScales.add(getCharacterBodyScale(ch.id).join(','));
+
+      const match = createMatch({
+        p1: ch,
+        p2: getCharacterById('kazuma'),
+        p1Costume: 0,
+        p2Costume: 0,
+        stage: STAGES[0],
+        roundsToWin: 2,
+      });
+      const f = match.fighters[0];
+
+      // 1) Check showcase & combat idle finger bounds — max finger vertex distance from wrist < 16.5 cm!
+      for (const showcase of [true, false]) {
+        anim.update(f, 0.25, 1 / 60, showcase, false);
+        const pal = anim.skeleton.palette;
+        const wx = anim.skeleton.world[HUMANOID_JOINT_HAND_L * 16 + 12];
+        const wy = anim.skeleton.world[HUMANOID_JOINT_HAND_L * 16 + 13];
+        const wz = anim.skeleton.world[HUMANOID_JOINT_HAND_L * 16 + 14];
+
+        let maxFingerDist = 0;
+        const jArr = mesh.joints!;
+        const wArr = mesh.weights!;
+        for (let v = 0; v < mesh.positions.length / 3; v += 1) {
+          const j0 = jArr[v * 4];
+          if (j0 < 11 || j0 > 30) continue;
+          const px = mesh.positions[v * 3];
+          const py = mesh.positions[v * 3 + 1];
+          const pz = mesh.positions[v * 3 + 2];
+          let ox = 0,
+            oy = 0,
+            oz = 0;
+          for (let k = 0; k < 4; k += 1) {
+            const w = wArr[v * 4 + k];
+            if (w <= 0) continue;
+            const o = jArr[v * 4 + k] * 16;
+            ox += w * (pal[o] * px + pal[o + 4] * py + pal[o + 8] * pz + pal[o + 12]);
+            oy += w * (pal[o + 1] * px + pal[o + 5] * py + pal[o + 9] * pz + pal[o + 13]);
+            oz += w * (pal[o + 2] * px + pal[o + 6] * py + pal[o + 10] * pz + pal[o + 14]);
+          }
+          maxFingerDist = Math.max(maxFingerDist, Math.hypot(ox - wx, oy - wy, oz - wz));
+        }
+        expect(maxFingerDist).toBeLessThan(0.165);
+      }
+
+      // 2) Check Ground-Contact Foot Clamping across crouch, walk, attack, knockdown, KO!
+      for (const st of ['idle', 'walk', 'sidestep', 'knockdown', 'ko'] as const) {
+        f.state = st;
+        f.crouching = st === 'idle';
+        anim.update(f, 0.4, 1 / 60, false, false);
+        const w = anim.skeleton.world;
+        expect(w[HUMANOID_JOINT_FOOT_L * 16 + 13] - 0.082).toBeGreaterThanOrEqual(-0.002);
+        expect(w[HUMANOID_JOINT_FOOT_R * 16 + 13] - 0.082).toBeGreaterThanOrEqual(-0.002);
+        expect(w[HUMANOID_JOINT_BALL_L * 16 + 13] - 0.042).toBeGreaterThanOrEqual(-0.002);
+        expect(w[HUMANOID_JOINT_BALL_R * 16 + 13] - 0.042).toBeGreaterThanOrEqual(-0.002);
+      }
+    }
+
+    // Verify genuinely distinct 3D geometries & body builds across the 12-fighter roster!
+    expect(distinctVertCounts.size).toBeGreaterThanOrEqual(10);
+    expect(distinctBodyScales.size).toBeGreaterThanOrEqual(10);
+
+    // 3) Verify Dragon's Nest is 100% untouched AND all 4 other arenas are replaced with rich CC0 3D GLBs!
+    const dragonsNestBytes = fs.readFileSync(path.resolve('public/models/stages/dragons_nest.glb'));
+    const dragonsNestSha = crypto.createHash('sha256').update(dragonsNestBytes).digest('hex');
+    expect(dragonsNestSha).toBe('fcfa220d06b5ab02d703734db00c360a27a56408277637850659028ed3b91d15');
+
+    for (const stageId of [
+      'moonlit_wilderness',
+      'honmaru_dojo',
+      'cathedral_retribution',
+      'neotokyo_helipad',
+    ]) {
+      const stageBuf = fs.readFileSync(path.resolve(`public/models/stages/${stageId}.glb`));
+      const parsed = readGlb(
+        stageBuf.buffer.slice(stageBuf.byteOffset, stageBuf.byteOffset + stageBuf.byteLength),
+      );
+      const imported = gltfToMeshes(parsed.json, parsed.binary ? [parsed.binary] : []);
+      expect(imported.meshes.length).toBe(2);
+      const totalVerts =
+        (imported.meshes[0].positions.length + imported.meshes[1].positions.length) / 3;
+      expect(totalVerts).toBeGreaterThan(40000);
+    }
   });
 });

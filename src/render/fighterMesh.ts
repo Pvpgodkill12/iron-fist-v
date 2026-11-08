@@ -288,14 +288,11 @@ export function buildFighterMeshData(char: CharacterData, costumeIdx: 0 | 1): Me
         break;
       }
       case 'demon_crown': {
-        // Jinpachi swept white beard/brows & glowing demon third eye!
-        b.addBox(jp(JOINT_HEAD, 0.065, 0.165, 0.085), [0.055 * sx, 0.018 * sy, 0.03 * sz], hair, 0.1, 0.5);
-        b.addBox(jp(JOINT_HEAD, -0.065, 0.165, 0.085), [0.055 * sx, 0.018 * sy, 0.03 * sz], hair, 0.1, 0.5);
-        b.addBox(jp(JOINT_HEAD, 0.065, 0.045, 0.095), [0.058 * sx, 0.025 * sy, 0.035 * sz], hair, 0.1, 0.4);
-        b.addBox(jp(JOINT_HEAD, -0.065, 0.045, 0.095), [0.058 * sx, 0.025 * sy, 0.035 * sz], hair, 0.1, 0.4);
-        b.setEmissiveColor(hexToLinear(pal.aura));
-        b.addSphere(jp(JOINT_HEAD, 0, 0.165, 0.105), 0.024 * sx, aura, 2.2, 8, 6, 0.9);
-        b.setEmissiveColor(null);
+        // Jinpachi swept white beard/brows (matte, zero head glare!)
+        b.addBox(jp(JOINT_HEAD, 0.065, 0.165, 0.085), [0.055 * sx, 0.018 * sy, 0.03 * sz], hair, 0, 0.25);
+        b.addBox(jp(JOINT_HEAD, -0.065, 0.165, 0.085), [0.055 * sx, 0.018 * sy, 0.03 * sz], hair, 0, 0.25);
+        b.addBox(jp(JOINT_HEAD, 0.065, 0.045, 0.095), [0.058 * sx, 0.025 * sy, 0.035 * sz], hair, 0, 0.25);
+        b.addBox(jp(JOINT_HEAD, -0.065, 0.045, 0.095), [0.058 * sx, 0.025 * sy, 0.035 * sz], hair, 0, 0.25);
         break;
       }
       default: {
@@ -505,6 +502,20 @@ export class FighterRigAnimator {
     writePoseJoint(this.blendedPose, JOINT_WING_R, 6 + wingFlutter * 0.4, wingFlutter, 0);
 
     this.skeleton.applyPose(this.blendedPose);
+
+    // Clamp 20-bone fallback rig feet/soles >= Y=0 so feet never sink below arena floor!
+    const w = this.skeleton.world;
+    const minSoleY = Math.min(
+      w[JOINT_ANKLE_L * 16 + 13] - 0.085,
+      w[JOINT_ANKLE_R * 16 + 13] - 0.085,
+      w[JOINT_KNEE_L * 16 + 13] - 0.055,
+      w[JOINT_KNEE_R * 16 + 13] - 0.055,
+      w[JOINT_PELVIS * 16 + 13] - 0.085,
+    );
+    if (minSoleY < 0) {
+      this.blendedPose.translation[JOINT_PELVIS * 3 + 1] += -minSoleY;
+      this.skeleton.applyPose(this.blendedPose);
+    }
   }
 
   /** Reads joint world position inside local character space and transforms to arena space */

@@ -277,30 +277,127 @@
           </div>
         </div>
 
-        <!-- Mobile Arcade Touch Controls -->
+        <!-- Mobile Arcade Touch Controls (Custom SVG Sanwa Fightstick + Limb Pushbuttons + Triggers) -->
         <div id="mobile-touch-layer" class="mobile-touch-layer hidden">
-          <div id="touch-stick-zone" class="touch-stick-zone">
+          <div id="touch-stick-zone" class="touch-stick-zone" data-dir-x="0" data-dir-z="0">
             <div class="stick-ring">
-              <span class="dir-hint up">SS</span>
-              <span class="dir-hint down">CR</span>
-              <span class="dir-hint left">BLK</span>
-              <span class="dir-hint right">FWD</span>
-              <div id="touch-stick-knob" class="stick-knob"></div>
+              <svg class="stick-gate-svg" viewBox="0 0 140 140" aria-hidden="true">
+                <defs>
+                  <radialGradient id="gateWellGrad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#050508" stop-opacity="0.92" />
+                    <stop offset="72%" stop-color="#14141d" stop-opacity="0.88" />
+                    <stop offset="100%" stop-color="#221016" stop-opacity="0.95" />
+                  </radialGradient>
+                </defs>
+                <!-- Brushed Arcade Bezel & Mounting Bolts -->
+                <circle cx="70" cy="70" r="67" fill="url(#gateWellGrad)" stroke="rgba(255,40,60,0.55)" stroke-width="2" />
+                <circle cx="70" cy="70" r="61" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1" stroke-dasharray="6 4" />
+                <circle cx="24" cy="24" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="116" cy="24" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="24" cy="116" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="116" cy="116" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <!-- True 8-Way Octagonal Arcade Restrictor Gate -->
+                <polygon
+                  points="70,22 104,36 118,70 104,104 70,118 36,104 22,70 36,36"
+                  fill="rgba(6,6,10,0.65)"
+                  stroke="rgba(255,255,255,0.28)"
+                  stroke-width="1.8"
+                />
+                <!-- Center Dustwasher Ring -->
+                <circle cx="70" cy="70" r="19" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.16)" stroke-width="1.2" />
+                <!-- 4 Directional Arcade Chevrons -->
+                <path class="gate-chevron chev-up" d="M62 17 L70 9 L78 17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-down" d="M62 123 L70 131 L78 123" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-left" d="M17 62 L9 70 L17 78" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-right" d="M123 62 L131 70 L123 78" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <div id="touch-stick-knob" class="stick-knob">
+                <svg class="knob-svg" viewBox="0 0 60 60" aria-hidden="true">
+                  <defs>
+                    <radialGradient id="ballTopGrad" cx="34%" cy="30%" r="68%">
+                      <stop offset="0%" stop-color="#ff8a96" />
+                      <stop offset="28%" stop-color="#ff1e34" />
+                      <stop offset="76%" stop-color="#9e0818" />
+                      <stop offset="100%" stop-color="#45030a" />
+                    </radialGradient>
+                  </defs>
+                  <circle cx="30" cy="30" r="27" fill="url(#ballTopGrad)" stroke="rgba(255,255,255,0.82)" stroke-width="1.8" />
+                  <ellipse cx="22" cy="18" rx="9" ry="5" transform="rotate(-24 22 18)" fill="rgba(255,255,255,0.42)" />
+                </svg>
+              </div>
             </div>
           </div>
 
           <div id="touch-buttons-zone" class="touch-buttons-zone">
             <div class="touch-macro-row">
-              <button class="touch-macro special-macro" data-touch-btn="special">SP</button>
-              <button class="touch-macro launch-macro" data-touch-btn="launch">LAUNCH</button>
-              <button class="touch-macro rage-macro" data-touch-btn="1+2">RAGE</button>
-              <button class="touch-macro" data-touch-btn="1+3">GRAB</button>
+              <button class="touch-macro special-macro" data-touch-btn="special" aria-label="Special Attack">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M11.5 1.5 L4 11 H9.5 L8.5 18.5 L16 9 H10.5 Z" fill="currentColor" />
+                </svg>
+                <span>SP</span>
+              </button>
+              <button class="touch-macro launch-macro" data-touch-btn="launch" aria-label="Launcher">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 2 L16.5 9 H12.5 V18 H7.5 V9 H3.5 Z" fill="currentColor" />
+                </svg>
+                <span>LNCH</span>
+              </button>
+              <button class="touch-macro grab-macro" data-touch-btn="1+3" aria-label="Grab Throw">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M4 11 C4 6.5 7 4 10 4 C13 4 16 6.5 16 11 M6.5 15.5 L10 12 L13.5 15.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>GRAB</span>
+              </button>
+              <button class="touch-macro rage-macro" data-touch-btn="1+2" aria-label="Rage Art">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 1.8 C12.8 5.5 16 8.2 16 12.2 C16 15.6 13.3 18.2 10 18.2 C6.7 18.2 4 15.6 4 12.2 C4 9.5 5.6 7.4 7.4 5.8 C7.2 7.8 8.4 9.1 9.6 9.5 C8.8 6.8 9.2 4.1 10 1.8 Z" fill="currentColor" />
+                </svg>
+                <span>RAGE</span>
+              </button>
             </div>
             <div class="tekken-diamond">
-              <button class="limb-btn lp-btn" data-touch-btn="lp"><b>1</b><small>LP</small></button>
-              <button class="limb-btn rp-btn" data-touch-btn="rp"><b>2</b><small>RP</small></button>
-              <button class="limb-btn lk-btn" data-touch-btn="lk"><b>3</b><small>LK</small></button>
-              <button class="limb-btn rk-btn" data-touch-btn="rk"><b>4</b><small>RK</small></button>
+              <button class="limb-btn lp-btn" data-touch-btn="lp" aria-label="Left Punch 1">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(12,13,20,0.92)" stroke="rgba(226,232,240,0.72)" stroke-width="2.4" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(28,32,44,0.88)" stroke="rgba(255,255,255,0.2)" stroke-width="1.2" />
+                  <!-- Martial-Arts Fist Icon -->
+                  <path d="M21 28 C21 24.5 23.5 23 26 23 H37 C39.8 23 42 25.2 42 28 V34 C42 38.2 38.5 41 34 41 H27 C23.5 41 21 38.4 21 35 Z" fill="rgba(255,255,255,0.16)" stroke="#f1f5f9" stroke-width="2" />
+                  <path d="M26 23 V29 M30.5 23 V29 M35 23 V29 M21 31 H36" stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span class="limb-badge">1</span>
+                <small class="limb-tag">LP</small>
+              </button>
+              <button class="limb-btn rp-btn" data-touch-btn="rp" aria-label="Right Punch 2">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(22,8,12,0.94)" stroke="#ff2b3e" stroke-width="2.6" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(58,12,20,0.88)" stroke="rgba(255,140,152,0.32)" stroke-width="1.2" />
+                  <!-- Martial-Arts Heavy Fist Icon -->
+                  <path d="M21 28 C21 24.5 23.5 23 26 23 H37 C39.8 23 42 25.2 42 28 V34 C42 38.2 38.5 41 34 41 H27 C23.5 41 21 38.4 21 35 Z" fill="rgba(255,43,62,0.24)" stroke="#ffd6da" stroke-width="2" />
+                  <path d="M26 23 V29 M30.5 23 V29 M35 23 V29 M21 31 H36" stroke="#ffd6da" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span class="limb-badge">2</span>
+                <small class="limb-tag">RP</small>
+              </button>
+              <button class="limb-btn lk-btn" data-touch-btn="lk" aria-label="Left Kick 3">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(10,16,24,0.92)" stroke="#7dd3fc" stroke-width="2.4" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(18,34,50,0.88)" stroke="rgba(125,211,252,0.28)" stroke-width="1.2" />
+                  <!-- Dynamic Martial-Arts Kick Boot/Foot Icon -->
+                  <path d="M24 21 L31 21 L30 32 L43 35 C44.5 35.5 45 39 42.5 39.5 L23 39.5 C21 39.5 20.5 37 21.5 34.5 Z" fill="rgba(125,211,252,0.2)" stroke="#e0f2fe" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                <span class="limb-badge">3</span>
+                <small class="limb-tag">LK</small>
+              </button>
+              <button class="limb-btn rk-btn" data-touch-btn="rk" aria-label="Right Kick 4">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(26,10,10,0.94)" stroke="#fb7185" stroke-width="2.6" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(68,16,22,0.88)" stroke="rgba(251,113,133,0.32)" stroke-width="1.2" />
+                  <!-- Dynamic Martial-Arts Heavy Kick Icon -->
+                  <path d="M24 21 L31 21 L30 32 L43 35 C44.5 35.5 45 39 42.5 39.5 L23 39.5 C21 39.5 20.5 37 21.5 34.5 Z" fill="rgba(251,113,133,0.24)" stroke="#ffe4e6" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                <span class="limb-badge">4</span>
+                <small class="limb-tag">RK</small>
+              </button>
             </div>
           </div>
         </div>

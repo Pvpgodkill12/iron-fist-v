@@ -701,19 +701,47 @@ function stepFighterIntent(
     return;
   }
 
-  // Knockdown / Wake-up
+  // Knockdown / Tekken Okizeme Wake-Up Options (Tech Roll, Back Roll, Wake-Up Low/Mid Kick!)
   if (f.state === 'knockdown') {
     f.x += f.vx;
     f.vx *= 0.84;
     f.stateFrame += 1;
-    // Quick tech-roll on button press after frame 26
-    const wakeTarget = pressedMask !== 0 && f.stateFrame > 26 ? 28 : KNOCKDOWN_FRAMES;
+
+    if (f.stateFrame > 24) {
+      // Wake-up Kick Attacks (LK = Wake-Up Low Sweep, RK = Wake-Up Mid Kick)
+      if (pressedMask & 4) {
+        opp.comboCounter = 0;
+        opp.comboDamage = 0;
+        startAttack(state, f, opp, UNIVERSAL_LOW_KICK);
+        return;
+      }
+      if (pressedMask & 8) {
+        opp.comboCounter = 0;
+        opp.comboDamage = 0;
+        startAttack(state, f, opp, f.char.normals.rk);
+        return;
+      }
+      // Back-Roll safety escape when holding Back
+      if (fwd < 0 && f.stateFrame >= 28) {
+        f.state = 'idle';
+        f.stateFrame = 0;
+        moveAlongCombatAxis(f, opp, -0.52);
+        opp.comboCounter = 0;
+        opp.comboDamage = 0;
+        return;
+      }
+    }
+
+    // Quick lateral tech-roll on LP/RP press after frame 24, or standard wakeup at KNOCKDOWN_FRAMES
+    const wakeTarget = (pressedMask & 3) !== 0 && f.stateFrame > 24 ? 26 : KNOCKDOWN_FRAMES;
     if (f.stateFrame >= wakeTarget) {
       f.state = 'idle';
       f.stateFrame = 0;
-      if (pressedMask !== 0) {
-        // Slight Z tech roll
-        f.z += f.z >= 0 ? -0.35 : 0.35;
+      if ((pressedMask & 3) !== 0) {
+        const [ax, az] = getAxisToOpponent(f, opp);
+        const sideSign = f.z >= 0 ? -1 : 1;
+        f.x += -az * sideSign * 0.42;
+        f.z += ax * sideSign * 0.42;
       }
       opp.comboCounter = 0;
       opp.comboDamage = 0;
@@ -801,9 +829,12 @@ function stepFighterIntent(
     return;
   }
 
-  // Active 3D Sidestep state
+  // Active 3D Circular Orbit Sidestep around opponent!
   if (f.state === 'sidestep') {
-    f.z += f.sidestepDir * f.char.sidestepSpeed * 1.35;
+    const [ax, az] = getAxisToOpponent(f, opp);
+    const stepStep = f.sidestepDir * f.char.sidestepSpeed * 1.38;
+    f.x += -az * f.facing * stepStep;
+    f.z += ax * f.facing * stepStep;
     f.sidestepFrames -= 1;
     f.stateFrame += 1;
     // Allow sidestep cancel into attack!
@@ -825,16 +856,22 @@ function stepFighterIntent(
 
   // Active Forward Dash (f,f) or Korean Backdash (b,b) burst along 3D lock-on axis!
   if (f.dashFrames > 0) {
-    f.dashFrames -= 1;
-    const burstSpeed =
-      f.dashDir > 0 ? f.char.walkSpeed * 2.05 : f.char.backSpeed * 2.15;
-    moveAlongCombatAxis(f, opp, f.dashDir * burstSpeed);
-    f.state = 'walk';
-    f.stateFrame += 1;
-    if (f.dashFrames <= 0) {
+    // Allow instant Dash-Block cancel when holding Back during a forward dash!
+    if (f.dashDir > 0 && fwd < 0) {
+      f.dashFrames = 0;
       f.dashDir = 0;
+    } else {
+      f.dashFrames -= 1;
+      const burstSpeed =
+        f.dashDir > 0 ? f.char.walkSpeed * 2.08 : f.char.backSpeed * 2.18;
+      moveAlongCombatAxis(f, opp, f.dashDir * burstSpeed);
+      f.state = 'walk';
+      f.stateFrame += 1;
+      if (f.dashFrames <= 0) {
+        f.dashDir = 0;
+      }
+      return;
     }
-    return;
   }
 
   // Detect Double-Tap Forward Dash (f,f) or Backdash (b,b)
