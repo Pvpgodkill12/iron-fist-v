@@ -153,15 +153,43 @@ export class CpuController {
 
     const distX = Math.abs(opp.x - me.x);
     const distZ = Math.abs(opp.z - me.z);
+    const dist3d = Math.hypot(distX, distZ);
+    const nearWall = Math.abs(me.x) > state.config.stage.halfWidth - 1.15;
 
     if (opp.state !== 'attack') {
       this.lastReactedMove = null;
       this.reactedShouldGuard = false;
     }
 
+    // Active Juggle Follow-Up: close gap & convert multi-hit aerial combo!
+    if (opp.state === 'juggle' && difficulty >= 1) {
+      if (dist3d > 1.38) {
+        this.out.x = me.facing;
+        return this.out;
+      }
+      if (opp.y > 0.18 && opp.y < 1.55) {
+        if (!opp.boundUsed && opp.juggleHits >= 2 && difficulty >= 2) {
+          const boundSpec = me.char.specials.find((s) => s.move.bound);
+          if (boundSpec) {
+            this.enqueueNotation(boundSpec.notation);
+            return this.out;
+          }
+        }
+        if (opp.juggleHits <= 1) {
+          this.out.buttons.lp = true;
+        } else if (opp.juggleHits === 2) {
+          this.out.buttons.lk = true;
+        } else {
+          this.out.buttons.rk = true;
+        }
+        this.decisionCooldown = [0, 14, 9, 5, 3][difficulty];
+        return this.out;
+      }
+    }
+
     // Defensive reaction rolled ONCE per incoming opponent move!
-    if (opp.state === 'attack' && opp.activeMove !== null && distX < opp.activeMove.reach + 0.55) {
-      if (this.holdBlockFrames > 0) {
+    if (opp.state === 'attack' && opp.activeMove !== null && dist3d < opp.activeMove.reach + 0.55) {
+      if (this.holdBlockFrames > 0 && !nearWall) {
         this.holdBlockFrames -= 1;
         this.out.x = (-me.facing) as -1 | 1;
         if (this.holdCrouchFrames > 0) {
@@ -176,48 +204,51 @@ export class CpuController {
         this.reactedShouldGuard = state.rng() < guardSkill;
         if (this.reactedShouldGuard) {
           if (
-            difficulty >= 3 &&
+            difficulty >= 2 &&
             !opp.activeMove.homing &&
             opp.activeMove.startup >= 15 &&
-            state.rng() < 0.3
+            state.rng() < 0.34
           ) {
             this.sidestepDir = me.z >= 0 ? -1 : 1;
             this.sidestepTapFrames = 3;
             this.out.z = this.sidestepDir;
             return this.out;
           }
-          this.holdBlockFrames = Math.min(18, opp.activeMove.startup + opp.activeMove.active);
-          this.out.x = (-me.facing) as -1 | 1;
-          if (opp.activeMove.height === 'low' && state.rng() < guardSkill * 0.72) {
-            this.holdCrouchFrames = this.holdBlockFrames;
-            this.out.z = -1;
-          } else if (opp.activeMove.height === 'high' && difficulty >= 3 && state.rng() < 0.4) {
-            this.holdCrouchFrames = 10;
-            this.out.z = -1;
+          if (!nearWall) {
+            this.holdBlockFrames = Math.min(14, opp.activeMove.startup + opp.activeMove.active);
+            this.out.x = (-me.facing) as -1 | 1;
+            if (opp.activeMove.height === 'low' && state.rng() < guardSkill * 0.72) {
+              this.holdCrouchFrames = this.holdBlockFrames;
+              this.out.z = -1;
+            } else if (opp.activeMove.height === 'high' && difficulty >= 3 && state.rng() < 0.4) {
+              this.holdCrouchFrames = 10;
+              this.out.z = -1;
+            }
+            return this.out;
           }
-          return this.out;
         }
       }
     }
 
     if (this.decisionCooldown > 0) {
       this.decisionCooldown -= 1;
-      if (distX > 1.85) {
+      if (dist3d > 1.75) {
         this.out.x = me.facing;
       }
       return this.out;
     }
 
-    // Approach if far away
-    if (distX > 2.35) {
-      // Occasional running/dash attack when closing in
-      if (distX < 2.85 && state.rng() < 0.18 * difficulty) {
+    // Approach if far away (or dash in!)
+    if (dist3d > 2.25) {
+      if (dist3d < 2.95 && state.rng() < 0.2 * difficulty) {
         for (const sp of me.char.specials) {
           if (sp.notation.startsWith('f,f+')) {
             this.enqueueNotation(sp.notation);
             return this.out;
           }
         }
+        this.enqueueNotation('f,f');
+        return this.out;
       }
       this.out.x = me.facing;
       return this.out;
@@ -281,7 +312,7 @@ export class CpuController {
     ) => {
       const rngU32 = (state.rng() * 0xffffffff) >>> 0;
       const sc = wasm.score_ai_move(
-        distX,
+        dist3d,
         distZ,
         oppStateCode,
         opp.crouching ? 1 : 0,
@@ -322,11 +353,11 @@ export class CpuController {
         this.enqueueNotation(chosen.notation);
       }
     } else {
-      // Micro-spacing: step in or sidestep
-      if (distX > 1.45) {
+      // Micro-spacing: step in toward opponent (never get stranded in Z or corner!)
+      if (dist3d > 1.38 || nearWall) {
         this.out.x = me.facing;
-      } else if (state.rng() < 0.25) {
-        this.sidestepDir = state.rng() < 0.5 ? 1 : -1;
+      } else if (state.rng() < 0.22) {
+        this.sidestepDir = me.z > 0.3 ? -1 : me.z < -0.3 ? 1 : state.rng() < 0.5 ? 1 : -1;
         this.sidestepTapFrames = 3;
         this.out.z = this.sidestepDir;
       }

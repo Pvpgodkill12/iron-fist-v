@@ -20,12 +20,12 @@ import {
 } from '../wasm/wasmBridge';
 
 export const BODY_SEPARATION = 0.82;
-export const BASE_HIT_DEPTH = 0.62;
-export const GRAVITY = 0.0084;
+export const BASE_HIT_DEPTH = 0.72;
+export const GRAVITY = 0.008;
 export const JUMP_VELOCITY = 0.165;
-export const DEFAULT_LAUNCH_VY = 0.178;
-export const BOUND_VY = 0.125;
-export const MAX_JUGGLE_HITS = 7;
+export const DEFAULT_LAUNCH_VY = 0.184;
+export const BOUND_VY = 0.132;
+export const MAX_JUGGLE_HITS = 8;
 export const KNOCKDOWN_FRAMES = 46;
 export const SIDESTEP_TOTAL_FRAMES = 18;
 export const CROUCH_THRESHOLD_FRAMES = 6;
@@ -100,6 +100,9 @@ export interface FighterSim {
   comboDamage: number;
   lastFrameAdvantage: number;
   armorFlashFrames: number;
+  queuedStringMask: number;
+  dashFrames: number;
+  dashDir: -1 | 0 | 1;
 }
 
 export type RoundPhase = 'intro' | 'fight' | 'round_over' | 'match_over';
@@ -107,6 +110,8 @@ export type RoundPhase = 'intro' | 'fight' | 'round_over' | 'match_over';
 export type CombatEventKind =
   | 'hit'
   | 'counter_hit'
+  | 'whiff_punish'
+  | 'sidestep_evade'
   | 'block'
   | 'whiff'
   | 'launch'
@@ -211,7 +216,115 @@ function createFighter(
     comboDamage: 0,
     lastFrameAdvantage: 0,
     armorFlashFrames: 0,
+    queuedStringMask: 0,
+    dashFrames: 0,
+    dashDir: 0,
   };
+}
+
+/** Universal Tekken Directional Normals (active across all 12 fighters!) */
+const UNIVERSAL_CROUCH_JAB: MoveData = {
+  id: 'uni_d1',
+  name: 'Crouching Jab',
+  startup: 10,
+  active: 3,
+  recovery: 13,
+  damage: 7,
+  hitstun: 16,
+  blockstun: 6,
+  reach: 1.48,
+  pushback: 0.16,
+  height: 'low',
+  limb: 'lp',
+  anim: 'jab_l',
+};
+
+const UNIVERSAL_LOW_KICK: MoveData = {
+  id: 'uni_d4',
+  name: 'Shin Slicer',
+  startup: 14,
+  active: 4,
+  recovery: 18,
+  damage: 13,
+  hitstun: 18,
+  blockstun: 5,
+  reach: 1.78,
+  pushback: 0.24,
+  height: 'low',
+  limb: 'rk',
+  anim: 'low_sweep',
+};
+
+const UNIVERSAL_DF1_MID: MoveData = {
+  id: 'uni_df1',
+  name: 'Mid Gut Check',
+  startup: 13,
+  active: 3,
+  recovery: 15,
+  damage: 13,
+  hitstun: 19,
+  blockstun: 10,
+  reach: 1.62,
+  pushback: 0.24,
+  height: 'mid',
+  limb: 'lp',
+  anim: 'jab_l',
+  homing: true,
+};
+
+const UNIVERSAL_DF2_UPPER: MoveData = {
+  id: 'uni_df2',
+  name: 'Rising Uppercut',
+  startup: 15,
+  active: 4,
+  recovery: 22,
+  damage: 16,
+  hitstun: 28,
+  blockstun: 10,
+  reach: 1.68,
+  pushback: 0.3,
+  height: 'mid',
+  limb: 'rp',
+  anim: 'uppercut_r',
+  launch: true,
+  launchVy: 0.184,
+};
+
+const UNIVERSAL_UF4_HOPKICK: MoveData = {
+  id: 'uni_uf4',
+  name: 'Rising Hopkick',
+  startup: 15,
+  active: 4,
+  recovery: 23,
+  damage: 18,
+  hitstun: 28,
+  blockstun: 10,
+  reach: 1.76,
+  pushback: 0.32,
+  height: 'mid',
+  limb: 'rk',
+  anim: 'hopkick',
+  launch: true,
+  launchVy: 0.186,
+  advance: 0.32,
+};
+
+function getAxisToOpponent(f: FighterSim, opp: FighterSim): [number, number] {
+  const dx = opp.x - f.x;
+  const dz = opp.z - f.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0.001) return [dx / d, dz / d];
+  return [f.facing, 0];
+}
+
+function moveAlongCombatAxis(f: FighterSim, opp: FighterSim, signedDist: number): void {
+  const [ux, uz] = getAxisToOpponent(f, opp);
+  f.x += ux * signedDist;
+  f.z += uz * signedDist;
+  // Also gently pull Z toward center arena line when backing away so corners never drift deep
+  if (signedDist < 0 && Math.abs(f.z) > 0.25) {
+    f.z -= Math.sign(f.z) * Math.min(Math.abs(f.z), 0.015);
+  }
 }
 
 export function createMatch(config: MatchConfig): MatchState {
@@ -295,15 +408,31 @@ export function isMoveRecovery(f: FighterSim): boolean {
   );
 }
 
-function startAttack(state: MatchState, f: FighterSim, move: MoveData): void {
+function startAttack(state: MatchState, f: FighterSim, opp: FighterSim, move: MoveData): void {
   f.state = 'attack';
   f.stateFrame = 0;
   f.activeMove = move;
   f.hitRegistered = false;
-  f.crouching = false;
+  f.queuedStringMask = 0;
+  f.crouching = move.height === 'low';
   f.sidestepFrames = 0;
+  f.dashFrames = 0;
+  f.dashDir = 0;
   f.vx = 0;
   f.vz = 0;
+
+  // Tekken 3D tracking alignment on attack startup (unless opponent is actively sidestepping!)
+  if (opp.sidestepFrames <= 0) {
+    const dz = opp.z - f.z;
+    const cap = move.homing ? 0.55 : 0.28;
+    f.z += Math.sign(dz) * Math.min(Math.abs(dz), cap);
+  }
+  if (Math.abs(opp.x - f.x) > 0.04) {
+    f.facing = opp.x >= f.x ? 1 : -1;
+  }
+  if (move.id === 'uni_uf4') {
+    f.vy = 0.095;
+  }
 
   if (move.electric) {
     state.events.push({
@@ -317,7 +446,14 @@ function startAttack(state: MatchState, f: FighterSim, move: MoveData): void {
   }
 }
 
-function tryPickAttack(state: MatchState, f: FighterSim, pressedMask: number, heldMask: number): boolean {
+function tryPickAttack(
+  state: MatchState,
+  f: FighterSim,
+  opp: FighterSim,
+  relDir: number,
+  pressedMask: number,
+  heldMask: number,
+): boolean {
   const char = f.char;
   const bothPunches = (heldMask & 3) === 3 && (pressedMask & 3) !== 0;
   const bothKicks = (heldMask & 12) === 12 && (pressedMask & 12) !== 0;
@@ -328,7 +464,7 @@ function tryPickAttack(state: MatchState, f: FighterSim, pressedMask: number, he
   if (bothPunches) {
     if (f.rageActive && !f.rageArtUsed) {
       f.rageArtUsed = true;
-      startAttack(state, f, char.rageArt);
+      startAttack(state, f, opp, char.rageArt);
       state.rageFreezeFrames = 26;
       state.rageFreezeBy = f.index;
       state.events.push({
@@ -342,7 +478,7 @@ function tryPickAttack(state: MatchState, f: FighterSim, pressedMask: number, he
       });
       return true;
     }
-    startAttack(state, f, char.powerCrush);
+    startAttack(state, f, opp, char.powerCrush);
     return true;
   }
 
@@ -352,17 +488,17 @@ function tryPickAttack(state: MatchState, f: FighterSim, pressedMask: number, he
       f.kiUsed = true;
       f.kiFrames = KI_HEAT_FRAMES;
     }
-    startAttack(state, f, char.kiSpecial);
+    startAttack(state, f, opp, char.kiSpecial);
     return true;
   }
 
   // 1+3 / 2+4 Grounded Throws
   if (lightThrow) {
-    startAttack(state, f, char.throws[0]);
+    startAttack(state, f, opp, char.throws[0]);
     return true;
   }
   if (heavyThrow) {
-    startAttack(state, f, char.throws[1]);
+    startAttack(state, f, opp, char.throws[1]);
     return true;
   }
 
@@ -370,38 +506,70 @@ function tryPickAttack(state: MatchState, f: FighterSim, pressedMask: number, he
   for (let i = 0; i < char.specials.length; i += 1) {
     const spec = char.specials[i];
     if (f.buffer.matches(spec.notation)) {
-      startAttack(state, f, spec.move);
+      startAttack(state, f, opp, spec.move);
       return true;
     }
   }
 
-  // 4-Limb Normals
+  // Universal Tekken Directional Normals (d/f+2 Launcher, u/f+4 Hopkick, d/f+1 Mid, d+1/d+2 Low Jab, d+3/d+4 Low Sweep!)
+  if (relDir === 3) {
+    if (pressedMask & 2) {
+      startAttack(state, f, opp, UNIVERSAL_DF2_UPPER);
+      return true;
+    }
+    if (pressedMask & 1) {
+      startAttack(state, f, opp, UNIVERSAL_DF1_MID);
+      return true;
+    }
+  }
+  if ((relDir === 9 || relDir === 8) && (pressedMask & 8)) {
+    startAttack(state, f, opp, UNIVERSAL_UF4_HOPKICK);
+    return true;
+  }
+  if (relDir === 1 || relDir === 2 || f.crouching) {
+    if (pressedMask & 12) {
+      startAttack(state, f, opp, UNIVERSAL_LOW_KICK);
+      return true;
+    }
+    if (pressedMask & 3) {
+      startAttack(state, f, opp, UNIVERSAL_CROUCH_JAB);
+      return true;
+    }
+  }
+
+  // 4-Limb Standing Normals
   if (pressedMask & 1) {
-    startAttack(state, f, char.normals.lp);
+    startAttack(state, f, opp, char.normals.lp);
     return true;
   }
   if (pressedMask & 2) {
-    startAttack(state, f, char.normals.rp);
+    startAttack(state, f, opp, char.normals.rp);
     return true;
   }
   if (pressedMask & 4) {
-    startAttack(state, f, char.normals.lk);
+    startAttack(state, f, opp, char.normals.lk);
     return true;
   }
   if (pressedMask & 8) {
-    startAttack(state, f, char.normals.rk);
+    startAttack(state, f, opp, char.normals.rk);
     return true;
   }
   return false;
 }
 
-function tryStringCancel(state: MatchState, f: FighterSim, pressedMask: number): boolean {
+function tryStringCancel(state: MatchState, f: FighterSim, opp: FighterSim, pressedMask: number): boolean {
   const cur = f.activeMove;
-  if (!cur || !cur.next || cur.next.length === 0 || pressedMask === 0) return false;
+  if (!cur || !cur.next || cur.next.length === 0) return false;
+  if (pressedMask !== 0) {
+    f.queuedStringMask |= pressedMask;
+  }
+  if (f.queuedStringMask === 0) return false;
+
   const cancelStart = cur.startup + cur.active - 1;
   const cancelEnd = cur.startup + cur.active + STRING_CANCEL_WINDOW;
   if (f.stateFrame < cancelStart || f.stateFrame > cancelEnd) return false;
 
+  const mask = f.queuedStringMask;
   for (let i = 0; i < cur.next.length; i += 1) {
     const branch = cur.next[i];
     const bit =
@@ -412,8 +580,8 @@ function tryStringCancel(state: MatchState, f: FighterSim, pressedMask: number):
           : branch.button === 'lk'
             ? 4
             : 8;
-    if ((pressedMask & bit) !== 0) {
-      startAttack(state, f, branch.move);
+    if ((mask & bit) !== 0) {
+      startAttack(state, f, opp, branch.move);
       return true;
     }
   }
@@ -430,10 +598,12 @@ function stepFighterIntent(
   const pressedMask = heldMask & ~f.prevMask;
   f.prevMask = heldMask;
 
-  // Update facing when grounded and neutral
+  // Update facing when grounded and neutral (always valid even near stage walls!)
   if (f.state === 'idle' || f.state === 'walk' || f.state === 'sidestep') {
-    if (Math.abs(opp.x - f.x) > 0.06) {
+    if (Math.abs(opp.x - f.x) > 0.02) {
       f.facing = opp.x >= f.x ? 1 : -1;
+    } else {
+      f.facing = f.index === 0 ? 1 : -1;
     }
   }
 
@@ -579,10 +749,10 @@ function stepFighterIntent(
 
     // Allow jumping Hopkick / Flying Attack in air!
     if (pressedMask !== 0 && f.y > 0.25) {
-      if (pressedMask & 8) startAttack(state, f, f.char.normals.rk);
-      else if (pressedMask & 4) startAttack(state, f, f.char.normals.lk);
-      else if (pressedMask & 2) startAttack(state, f, f.char.normals.rp);
-      else startAttack(state, f, f.char.normals.lp);
+      if (pressedMask & 8) startAttack(state, f, opp, UNIVERSAL_UF4_HOPKICK);
+      else if (pressedMask & 4) startAttack(state, f, opp, f.char.normals.lk);
+      else if (pressedMask & 2) startAttack(state, f, opp, f.char.normals.rp);
+      else startAttack(state, f, opp, f.char.normals.lp);
       return;
     }
 
@@ -602,12 +772,12 @@ function stepFighterIntent(
       f.y = jug.y;
       f.vy = jug.vy;
     }
-    // Forward dash momentum during startup
+    // Forward dash momentum along true 3D Fighter-to-Fighter Axis during startup
     if (f.activeMove.advance && f.stateFrame < f.activeMove.startup) {
-      f.x += f.facing * (f.activeMove.advance / f.activeMove.startup);
+      moveAlongCombatAxis(f, opp, f.activeMove.advance / f.activeMove.startup);
     }
 
-    if (tryStringCancel(state, f, pressedMask)) {
+    if (tryStringCancel(state, f, opp, pressedMask)) {
       return;
     }
 
@@ -624,6 +794,7 @@ function stepFighterIntent(
         });
       }
       f.activeMove = null;
+      f.crouching = false;
       f.state = 'idle';
       f.stateFrame = 0;
     }
@@ -632,11 +803,11 @@ function stepFighterIntent(
 
   // Active 3D Sidestep state
   if (f.state === 'sidestep') {
-    f.z += f.sidestepDir * f.char.sidestepSpeed * 1.42;
+    f.z += f.sidestepDir * f.char.sidestepSpeed * 1.35;
     f.sidestepFrames -= 1;
     f.stateFrame += 1;
     // Allow sidestep cancel into attack!
-    if (pressedMask !== 0 && tryPickAttack(state, f, pressedMask, heldMask)) {
+    if (pressedMask !== 0 && tryPickAttack(state, f, opp, relDir, pressedMask, heldMask)) {
       return;
     }
     if (f.sidestepFrames <= 0) {
@@ -647,9 +818,43 @@ function stepFighterIntent(
     return;
   }
 
-  // Neutral Grounded (Idle / Walk): Check attacks first!
-  if (pressedMask !== 0 && tryPickAttack(state, f, pressedMask, heldMask)) {
+  // Neutral Grounded (Idle / Walk / Dash): Check attacks first!
+  if (pressedMask !== 0 && tryPickAttack(state, f, opp, relDir, pressedMask, heldMask)) {
     return;
+  }
+
+  // Active Forward Dash (f,f) or Korean Backdash (b,b) burst along 3D lock-on axis!
+  if (f.dashFrames > 0) {
+    f.dashFrames -= 1;
+    const burstSpeed =
+      f.dashDir > 0 ? f.char.walkSpeed * 2.05 : f.char.backSpeed * 2.15;
+    moveAlongCombatAxis(f, opp, f.dashDir * burstSpeed);
+    f.state = 'walk';
+    f.stateFrame += 1;
+    if (f.dashFrames <= 0) {
+      f.dashDir = 0;
+    }
+    return;
+  }
+
+  // Detect Double-Tap Forward Dash (f,f) or Backdash (b,b)
+  if (!f.crouching && inp.z === 0 && inp.x !== 0) {
+    if (fwd > 0 && f.buffer.matches('f,f')) {
+      f.dashFrames = 11;
+      f.dashDir = 1;
+      f.state = 'walk';
+      f.stateFrame = 0;
+      moveAlongCombatAxis(f, opp, f.char.walkSpeed * 2.05);
+      return;
+    }
+    if (fwd < 0 && f.buffer.matches('b,b')) {
+      f.dashFrames = 10;
+      f.dashDir = -1;
+      f.state = 'walk';
+      f.stateFrame = 0;
+      moveAlongCombatAxis(f, opp, -f.char.backSpeed * 2.15);
+      return;
+    }
   }
 
   // Track vertical hold vs tap for 3D Sidestep vs Crouch / Jump!
@@ -697,10 +902,10 @@ function stepFighterIntent(
     f.holdUpFrames = 0;
   }
 
-  // Horizontal Walk (disabled while crouching)
+  // True Tekken 3D Lock-On Walk (fwd > 0 steps straight toward opponent in 3D; fwd < 0 steps away!)
   if (!f.crouching && inp.x !== 0) {
     const speed = fwd > 0 ? f.char.walkSpeed : f.char.backSpeed;
-    f.x += inp.x * speed;
+    moveAlongCombatAxis(f, opp, fwd * speed);
     if (f.state !== 'walk') {
       f.state = 'walk';
       f.stateFrame = 0;
@@ -791,7 +996,7 @@ function isDefenderBlocking(
     return true;
   }
 
-  const holdingBack = inp.x * def.facing === -1;
+  const holdingBack = inp.x * def.facing === -1 || def.dashDir === -1;
   if (!holdingBack) return false;
 
   if (move.height === 'low') {
@@ -815,6 +1020,10 @@ function resolveAttackHit(
   if (move === null || atk.hitRegistered || !isMoveActive(atk)) return;
   if (def.state === 'ko' || def.state === 'knockdown' || def.state === 'thrown') return;
 
+  // High-Crush: Low crouching attacks automatically duck under High attacks!
+  const defHighCrushing =
+    def.crouching || (def.state === 'attack' && def.activeMove?.height === 'low');
+
   const wasm = getCombatWasm();
   const connects = wasm.check_3d_hit(
     atk.x,
@@ -828,11 +1037,30 @@ function resolveAttackHit(
     def.x,
     def.y,
     def.z,
-    def.crouching ? 1 : 0,
+    defHighCrushing ? 1 : 0,
     def.sidestepFrames,
   );
 
-  if (connects === 0) return;
+  if (connects === 0) {
+    // Emit crisp SIDESTEP EVADE! callout if defender actively dodged an in-range linear strike
+    if (
+      def.sidestepFrames > 0 &&
+      !move.homing &&
+      atk.stateFrame === move.startup &&
+      Math.hypot(def.x - atk.x, def.z - atk.z) <= move.reach + 0.35
+    ) {
+      state.events.push({
+        kind: 'sidestep_evade',
+        by: def.index,
+        x: def.x,
+        y: 1.15,
+        z: def.z,
+        power: 0.55,
+        text: 'SIDESTEP EVADE!',
+      });
+    }
+    return;
+  }
 
   atk.hitRegistered = true;
   const hitX = (atk.x + def.x) * 0.5;
@@ -917,17 +1145,19 @@ function resolveAttackHit(
     return;
   }
 
-  // Counter-Hit check: hitting opponent during their attack's startup!
+  // Counter-Hit & Whiff-Punish checks!
   const isCounter = isMoveStartup(def);
+  const isWhiffPunish = !isCounter && isMoveRecovery(def) && def.juggleHits === 0;
   const wasAirborne = def.state === 'juggle' || def.y > 0.1;
 
-  const finalDamage = wasm.compute_combo_damage(
+  const baseComputed = wasm.compute_combo_damage(
     move.damage,
     wasAirborne ? def.juggleHits : atk.comboCounter,
     atk.rageActive ? 1 : 0,
     isCounter ? 1 : 0,
     atk.kiFrames > 0 ? 1 : 0,
   );
+  const finalDamage = isWhiffPunish ? Math.round(baseComputed * 1.15) : baseComputed;
 
   atk.comboCounter += 1;
   atk.comboDamage += finalDamage;
@@ -1026,13 +1256,19 @@ function resolveAttackHit(
   }
 
   state.events.push({
-    kind: isCounter ? 'counter_hit' : 'hit',
+    kind: isCounter ? 'counter_hit' : isWhiffPunish ? 'whiff_punish' : 'hit',
     by: atk.index,
     x: hitX,
     y: hitY,
     z: hitZ,
     power: Math.min(1, finalDamage / 32),
-    text: isCounter ? 'COUNTER HIT!' : move.electric ? 'ELECTRIC!' : undefined,
+    text: isCounter
+      ? 'COUNTER HIT!'
+      : isWhiffPunish
+        ? 'WHIFF PUNISH!'
+        : move.electric
+          ? 'ELECTRIC!'
+          : undefined,
   });
 }
 

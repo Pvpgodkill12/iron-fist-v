@@ -143,6 +143,7 @@ export class FightSceneEngine implements SceneEngineLike {
   private lookY = 1.08;
   private lookZ = 0;
   private shakeStrength = 0;
+  private impactZoom = 0;
   private clockSec = 0;
   private seedCounter = 1;
 
@@ -466,9 +467,15 @@ export class FightSceneEngine implements SceneEngineLike {
       switch (ev.kind) {
         case 'hit':
         case 'counter_hit':
+        case 'whiff_punish':
         case 'launch':
         case 'bound': {
-          const count = ev.kind === 'counter_hit' || ev.kind === 'launch' ? 28 : 16;
+          const heavy =
+            ev.kind === 'counter_hit' ||
+            ev.kind === 'whiff_punish' ||
+            ev.kind === 'launch' ||
+            ev.kind === 'bound';
+          const count = heavy ? 28 : 16;
           for (let p = 0; p < count; p += 1) {
             const s = (this.seedCounter += 1);
             const ang = (p / count) * Math.PI * 2 + (s % 7) * 0.2;
@@ -481,11 +488,14 @@ export class FightSceneEngine implements SceneEngineLike {
               1.6 + (s % 4) * 0.9,
               Math.sin(ang) * spd * 0.7,
               s,
-              ev.kind === 'counter_hit' ? 1.45 : 1.0,
+              heavy ? 1.45 : 1.0,
               1.0,
             );
           }
           this.shakeStrength = Math.max(this.shakeStrength, 0.08 + ev.power * 0.16);
+          if (heavy) {
+            this.impactZoom = Math.max(this.impactZoom, 0.42);
+          }
           const atk = state.fighters[ev.by];
           if (atk.activeMove?.electric || ev.kind === 'counter_hit' || ev.kind === 'launch') {
             for (let b = 0; b < 5; b += 1) {
@@ -541,8 +551,27 @@ export class FightSceneEngine implements SceneEngineLike {
           }
           break;
         }
+        case 'sidestep_evade': {
+          for (let d = 0; d < 10; d += 1) {
+            const s = (this.seedCounter += 1);
+            const ang = (d / 10) * Math.PI * 2;
+            this.dustPool.emit(
+              ev.x,
+              0.25,
+              ev.z,
+              Math.cos(ang) * 1.4,
+              0.45,
+              Math.sin(ang) * 1.4,
+              s,
+              0.85,
+              0.85,
+            );
+          }
+          break;
+        }
         case 'wall_splat':
         case 'throw_slam': {
+          this.impactZoom = Math.max(this.impactZoom, 0.52);
           for (let d = 0; d < 18; d += 1) {
             const s = (this.seedCounter += 1);
             const ang = (d / 18) * Math.PI * 2;
@@ -591,6 +620,7 @@ export class FightSceneEngine implements SceneEngineLike {
   stepEffects(dt: number, state: MatchState | null): void {
     this.clockSec += dt;
     this.shakeStrength = damp(this.shakeStrength, 0, 12, dt);
+    this.impactZoom = damp(this.impactZoom, 0, 9.5, dt);
 
     if (this.currentStage !== null && (this.seedCounter += 1) % 4 === 0) {
       const s = this.seedCounter;
@@ -684,8 +714,8 @@ export class FightSceneEngine implements SceneEngineLike {
     const z1 = lerp(f1.prevZ, f1.z, alpha);
 
     const isOutro = state.phase === 'round_over' || state.phase === 'match_over';
-    this.poseAndPlaceFighter(0, f0, x0, y0, z0, isOutro);
-    this.poseAndPlaceFighter(1, f1, x1, y1, z1, isOutro);
+    this.poseAndPlaceFighter(0, f0, x0, y0, z0, x1, z1, isOutro);
+    this.poseAndPlaceFighter(1, f1, x1, y1, z1, x0, z0, isOutro);
     this.updateTekkenCamera(state, x0, y0, z0, x1, y1, z1);
 
     const aspect = this.canvas.height > 0 ? this.canvas.width / this.canvas.height : 16 / 9;
@@ -924,6 +954,8 @@ export class FightSceneEngine implements SceneEngineLike {
     x: number,
     y: number,
     z: number,
+    oppX: number,
+    oppZ: number,
     isOutro = false,
   ): void {
     if (this.mocapAnimators) {
@@ -933,7 +965,14 @@ export class FightSceneEngine implements SceneEngineLike {
     }
     const node = this.fighterNodes[idx];
     node.setPosition(x, y, z);
-    const yaw = f.facing === 1 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    const dx = oppX - x;
+    const dz = oppZ - z;
+    const yaw =
+      Math.hypot(dx, dz) > 0.06
+        ? Math.atan2(dx, dz)
+        : f.facing === 1
+          ? Math.PI * 0.5
+          : -Math.PI * 0.5;
     node.setRotationAxisAngle(0, 1, 0, yaw);
     node.updateWorld();
   }
@@ -960,7 +999,9 @@ export class FightSceneEngine implements SceneEngineLike {
 
     let wantX = midX;
     let wantY = (isPortrait ? 1.85 : 1.62) + clamp((sep - 2.5) * 0.08, 0, 0.45);
-    let wantZ = midZ + clamp(Math.max(3.65 + sep * 0.48, neededHorizZ), 3.85, 13.5);
+    let wantZ =
+      midZ +
+      clamp(Math.max(3.65 + sep * 0.48, neededHorizZ) - this.impactZoom, 3.35, 13.5);
     let targetX = midX;
     let targetY = isPortrait ? midY - 0.55 : midY;
     let targetZ = midZ;

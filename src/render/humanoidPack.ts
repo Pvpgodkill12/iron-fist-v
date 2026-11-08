@@ -154,6 +154,7 @@ function mergeSkinnedParts(parts: readonly MeshData[], uniformScale = 1): MeshDa
   const normals = new Float32Array(totalVerts * 3);
   const colors = new Float32Array(totalVerts * 3);
   const emissive = new Float32Array(totalVerts);
+  const emissiveColor = new Float32Array(totalVerts * 3);
   const roughness = new Float32Array(totalVerts);
   const specular = new Float32Array(totalVerts);
   const joints = new Float32Array(totalVerts * 4);
@@ -162,6 +163,7 @@ function mergeSkinnedParts(parts: readonly MeshData[], uniformScale = 1): MeshDa
 
   let vOffset = 0;
   let iOffset = 0;
+  let hasAnyEmissiveColor = false;
 
   for (const p of parts) {
     const vCount = p.positions.length / 3;
@@ -176,11 +178,18 @@ function mergeSkinnedParts(parts: readonly MeshData[], uniformScale = 1): MeshDa
     colors.set(p.colors, vOffset * 3);
     emissive.set(p.emissive, vOffset);
 
+    if (p.emissiveColor) {
+      emissiveColor.set(p.emissiveColor, vOffset * 3);
+      hasAnyEmissiveColor = true;
+    } else {
+      emissiveColor.set(p.colors, vOffset * 3);
+    }
+
     if (p.roughness) roughness.set(p.roughness, vOffset);
     else roughness.fill(0.48, vOffset, vOffset + vCount);
 
     if (p.specular) specular.set(p.specular, vOffset);
-    else specular.fill(0.28, vOffset, vOffset + vCount);
+    else specular.fill(0.24, vOffset, vOffset + vCount);
 
     if (p.joints && p.weights) {
       joints.set(p.joints, vOffset * 4);
@@ -204,11 +213,57 @@ function mergeSkinnedParts(parts: readonly MeshData[], uniformScale = 1): MeshDa
     normals,
     colors,
     emissive,
+    ...(hasAnyEmissiveColor ? { emissiveColor } : {}),
     roughness,
     specular,
     joints,
     weights,
     indices,
+  };
+}
+
+function paintEyesNatural(
+  src: MeshData,
+  isFemale: boolean,
+  isBoss: boolean,
+  isMasked: boolean,
+): MeshData {
+  const vCount = src.positions.length / 3;
+  const colors = new Float32Array(vCount * 3);
+  const emissive = new Float32Array(vCount);
+  const roughness = new Float32Array(vCount);
+  const specular = new Float32Array(vCount);
+  const sclera = isMasked
+    ? srgbColor(0.12, 0.12, 0.15)
+    : isBoss
+      ? srgbColor(0.75, 0.16, 0.2)
+      : srgbColor(0.56, 0.56, 0.6);
+  const pupil = isBoss ? srgbColor(0.95, 0.32, 0.25) : srgbColor(0.05, 0.05, 0.07);
+  const eyeCenterY = isFemale ? 1.656 : 1.699;
+
+  for (let v = 0; v < vCount; v += 1) {
+    const px = src.positions[v * 3];
+    const py = src.positions[v * 3 + 1];
+    const inPupil =
+      Math.abs(Math.abs(px) - 0.031) < 0.012 && Math.abs(py - eyeCenterY) < 0.011;
+    const col = inPupil ? pupil : sclera;
+    colors[v * 3] = col[0];
+    colors[v * 3 + 1] = col[1];
+    colors[v * 3 + 2] = col[2];
+    emissive[v] = 0;
+    roughness[v] = 0.72;
+    specular[v] = 0.08;
+  }
+  return {
+    positions: src.positions,
+    normals: src.normals,
+    colors,
+    emissive,
+    roughness,
+    specular,
+    joints: src.joints,
+    weights: src.weights,
+    indices: src.indices,
   };
 }
 
@@ -270,11 +325,14 @@ export function buildHumanoidCharacterMesh(
   const shirtless = costumeIdx === 0 && SHIRTLESS_P1_IDS.has(char.id);
   const sleeveless = SLEEVELESS_IDS.has(char.id);
 
-  // 1. Brows / Lashes & Eyes
-  const browsMesh = paintPrimSolid(rawBrows, hairCol, 0, 0.55, 0.2);
-  const eyesMesh = isBoss
-    ? paintPrimSolid(rawEyes, srgbColor(1.0, 0.22, 0.26), 2.4, 0.15, 0.9)
-    : paintPrimSolid(rawEyes, srgbColor(0.95, 0.96, 0.99), 0.05, 0.12, 0.92);
+  // 1. Brows / Lashes & Matte Natural Eyes (zero glossy/blooming face rectangles!)
+  const browsMesh = paintPrimSolid(rawBrows, hairCol, 0, 0.65, 0.12);
+  const eyesMesh = paintEyesNatural(
+    rawEyes,
+    isFemale,
+    isBoss,
+    char.id === 'yoshimaru' || char.id === 'jaguar',
+  );
 
   // 2. Anatomically Zone-Paint the 7,300+ Vertex Sculpted Humanoid Body
   const vCount = rawBody.positions.length / 3;
@@ -310,18 +368,20 @@ export function buildHumanoidCharacterMesh(
     let em = 0;
 
     if (domJ === 6) {
-      // Head: Scalp/Hair vs Face Skin (or Jaguar Mask / Cyber Helmet!)
+      // Head: Scalp/Hair vs Face Skin (or Jaguar Mask / Cyber Helmet — zero emissive mouth patches!)
       if (char.id === 'jaguar') {
-        col = py > 1.61 ? srgbColor(0.86, 0.62, 0.16) : skinCol;
-        rough = 0.36;
+        const isMuzzle = pz > 0.065 && py < 1.66;
+        col = isMuzzle ? srgbColor(0.18, 0.14, 0.1) : srgbColor(0.82, 0.58, 0.15);
+        rough = 0.48;
+        spec = 0.22;
       } else if (char.id === 'yoshimaru') {
-        col = pz > 0.04 ? srgbColor(0.75, 0.14, 0.2) : topCol;
-        em = pz > 0.06 && py > 1.65 && py < 1.71 ? 1.2 : 0;
-        rough = 0.26;
-        spec = 0.78;
+        col = pz > 0.045 ? srgbColor(0.58, 0.1, 0.15) : topCol;
+        rough = 0.38;
+        spec = 0.45;
       } else if (py > headCrownY || (py > headCrownY - 0.08 && (pz < -0.02 || Math.abs(px) > 0.068))) {
         col = hairCol;
-        rough = 0.44;
+        rough = 0.56;
+        spec = 0.16;
       } else {
         col = skinCol;
       }
@@ -334,8 +394,8 @@ export function buildHumanoidCharacterMesh(
         col = skinCol;
         rough = 0.46;
         spec = 0.36;
-        if (isBoss && py > 1.25 && Math.abs(px) < 0.08) {
-          em = 0.45;
+        if (isBoss && py > 1.25 && py < 1.38 && Math.abs(px) < 0.08) {
+          em = 0;
         }
       } else if (!isFemale && Math.abs(px) < 0.045 && pz > 0.05 && py > 1.35) {
         // Martial-arts Gi V-collar chest opening
@@ -419,63 +479,52 @@ export function buildHumanoidCharacterMesh(
     indices: rawBody.indices,
   };
 
-  // 3. Signature 3D Sculpted Hair, Masks, Headbands & Weapons Bound Directly to 65-Bone Skeleton!
+  // 3. Signature Organic 3D Hair, Ears & Katana Bound Directly to 65-Bone Skeleton (zero rectangular face boxes!)
   const acc = new MeshBuilder();
   const headTopY = isFemale ? 1.75 : 1.79;
 
-  // Bind accessories to Head (Joint 6) in T-pose model space
   acc.setJoint(HUMANOID_JOINT_HEAD);
-  acc.setRoughness(0.38);
+  acc.setRoughness(0.58);
 
   if (char.id === 'paul') {
-    // Iconic Tall Blonde Flat-Top
-    acc.addBox([0, headTopY + 0.055, -0.005], [0.072, 0.075, 0.078], hairCol, 0, 0.35);
+    // Tall Blonde Flat-Top (matte hair, zero specular glare)
+    acc.addCylinder([0, headTopY + 0.038, -0.01], 0.068, 0.095, 'y', hairCol, 0, 14, 0.14);
   } else if (char.id === 'jinrai' || char.id === 'kazuma' || char.id === 'taehwan') {
-    // Spiky Mishima / Karate 3D Hair Tufts + Headband
-    acc.addOrientedBox([0, headTopY + 0.02, -0.02], [0.068, 0.042, 0.08], [0, 0.35, -0.94], hairCol, 0, 0.3);
-    acc.addOrientedBox([-0.048, headTopY + 0.015, -0.03], [0.03, 0.038, 0.07], [-0.25, 0.4, -0.88], hairCol, 0, 0.3);
-    acc.addOrientedBox([0.048, headTopY + 0.015, -0.03], [0.03, 0.038, 0.07], [0.25, 0.4, -0.88], hairCol, 0, 0.3);
-    if (char.id === 'jinrai' || char.id === 'taehwan') {
-      acc.addCylinder([0, headTopY - 0.055, 0], 0.092, 0.016, 'y', trimCol, 0, 14, 0.5);
-      acc.addOrientedBox([0.025, headTopY - 0.08, -0.13], [0.018, 0.055, 0.02], [0.1, -0.5, -0.86], trimCol, 0, 0.4);
-    }
+    // Organic swept Mishima / Karate hair crown
+    acc.addSphere([0, headTopY - 0.015, -0.025], 0.072, hairCol, 0, 12, 8, 0.14);
+    acc.addCapsule([-0.045, headTopY, -0.045], 0.028, 0.045, hairCol, 0, 8, 6, 0.14);
+    acc.addCapsule([0.045, headTopY, -0.045], 0.028, 0.045, hairCol, 0, 8, 6, 0.14);
   } else if (char.id === 'jaguar') {
-    // 3D Sculpted Golden Jaguar Mask Ears & Snout
-    const goldMask = srgbColor(0.9, 0.66, 0.16);
-    acc.addBox([-0.062, headTopY + 0.02, -0.01], [0.024, 0.036, 0.024], goldMask, 0, 0.5);
-    acc.addBox([0.062, headTopY + 0.02, -0.01], [0.024, 0.036, 0.024], goldMask, 0, 0.5);
-    acc.addBox([0, headTopY - 0.13, 0.105], [0.048, 0.036, 0.038], goldMask, 0, 0.5);
+    // Rounded Golden Jaguar Mask Ears on top of cranium only (no mouth box!)
+    const goldMask = srgbColor(0.82, 0.58, 0.15);
+    acc.addSphere([-0.062, headTopY + 0.005, -0.01], 0.026, goldMask, 0, 10, 8, 0.22);
+    acc.addSphere([0.062, headTopY + 0.005, -0.01], 0.026, goldMask, 0, 10, 8, 0.22);
   } else if (char.id === 'nina') {
     // Sleek High Assassin Ponytail
-    acc.addCapsule([0, headTopY - 0.06, -0.135], 0.034, 0.085, hairCol, 0, 10, 6, 0.4);
+    acc.addCapsule([0, headTopY - 0.06, -0.135], 0.032, 0.085, hairCol, 0, 10, 6, 0.18);
   } else if (char.id === 'linxiao') {
-    // Twin Kung-Fu Hair Buns + Trim Ribbons
-    acc.addSphere([-0.078, headTopY - 0.01, -0.02], 0.042, hairCol, 0, 10, 8, 0.35);
-    acc.addSphere([0.078, headTopY - 0.01, -0.02], 0.042, hairCol, 0, 10, 8, 0.35);
-    acc.addCylinder([-0.078, headTopY - 0.01, -0.02], 0.046, 0.01, 'x', trimCol, 0, 10, 0.5);
-    acc.addCylinder([0.078, headTopY - 0.01, -0.02], 0.046, 0.01, 'x', trimCol, 0, 10, 0.5);
+    // Twin Kung-Fu Hair Buns
+    acc.addSphere([-0.076, headTopY - 0.01, -0.02], 0.04, hairCol, 0, 10, 8, 0.18);
+    acc.addSphere([0.076, headTopY - 0.01, -0.02], 0.04, hairCol, 0, 10, 8, 0.18);
   } else if (char.id === 'yoshimaru') {
-    // Cyber-Samurai Kabuto Crescent Horns!
-    acc.setEmissiveColor(hexToLinear(c.aura));
-    acc.addOrientedBox([-0.065, headTopY + 0.045, 0.04], [0.014, 0.075, 0.02], [-0.45, 0.88, 0.15], trimCol, 1.4, 0.85);
-    acc.addOrientedBox([0.065, headTopY + 0.045, 0.04], [0.014, 0.075, 0.02], [0.45, 0.88, 0.15], trimCol, 1.4, 0.85);
-    acc.setEmissiveColor(null);
+    // Matte Metallic Samurai Kabuto Crest (zero emissive glare!)
+    acc.setRoughness(0.32);
+    acc.addCapsule([-0.055, headTopY + 0.035, 0.02], 0.012, 0.055, trimCol, 0, 8, 6, 0.55);
+    acc.addCapsule([0.055, headTopY + 0.035, 0.02], 0.012, 0.055, trimCol, 0, 8, 6, 0.55);
   } else if (char.id === 'jinpachi') {
-    // Demonic Horns & Twin Mishima Hair Wings
-    acc.setEmissiveColor(hexToLinear(c.aura));
-    acc.addOrientedBox([-0.085, headTopY + 0.03, 0.01], [0.028, 0.075, 0.03], [-0.55, 0.82, 0.1], hairCol, 0.8, 0.5);
-    acc.addOrientedBox([0.085, headTopY + 0.03, 0.01], [0.028, 0.075, 0.03], [0.55, 0.82, 0.1], hairCol, 0.8, 0.5);
-    acc.setEmissiveColor(null);
+    // Sculpted Mishima Side Hair Wings (zero emissive glare!)
+    acc.addCapsule([-0.082, headTopY + 0.01, -0.015], 0.026, 0.055, hairCol, 0, 8, 6, 0.2);
+    acc.addCapsule([0.082, headTopY + 0.01, -0.015], 0.026, 0.055, hairCol, 0, 8, 6, 0.2);
   }
 
-  // Yoshimaru's Glowing 3D Katana Bound Directly to Right Hand (`hand_r` = Joint 34)!
+  // Yoshimaru's 3D Katana Bound Directly to Right Hand (`hand_r` = Joint 34)
   if (char.id === 'yoshimaru') {
     acc.setJoint(HUMANOID_JOINT_HAND_R);
-    // In T-pose, hand_r sits at X = -0.76, Y = 1.445, Z = -0.05; blade extends forward along +Z!
-    acc.addBox([-0.76, 1.445, -0.06], [0.016, 0.016, 0.11], srgbColor(0.15, 0.15, 0.2), 0, 0.7);
-    acc.addBox([-0.76, 1.445, 0.055], [0.046, 0.046, 0.01], trimCol, 0.2, 0.9);
+    acc.setRoughness(0.24);
+    acc.addCylinder([-0.76, 1.445, -0.06], 0.014, 0.22, 'z', srgbColor(0.14, 0.14, 0.18), 0, 8, 0.5);
+    acc.addCylinder([-0.76, 1.445, 0.055], 0.042, 0.014, 'z', trimCol, 0, 10, 0.75);
     acc.setEmissiveColor(hexToLinear(c.aura));
-    acc.addBox([-0.76, 1.445, 0.52], [0.007, 0.02, 0.45], srgbColor(0.85, 0.96, 1.0), 2.1, 0.95);
+    acc.addBox([-0.76, 1.445, 0.50], [0.005, 0.016, 0.43], srgbColor(0.82, 0.88, 0.96), 0.45, 0.85);
     acc.setEmissiveColor(null);
   }
 
@@ -547,18 +596,31 @@ export class MocapFighterAnimator {
         const progress = Math.min(0.98, f.stateFrame / totalFrames);
 
         let name = 'Punch_Jab';
-        if (isSword && (m.id.includes('slash') || m.launch || m.damage >= 22)) {
+        if (m.anim === 'katana_slash' || m.anim === 'katana_spin' || (isSword && m.damage >= 20)) {
           name = m.launch ? 'Sword_UpperCut' : m.damage >= 25 ? 'Sword_Heavy_A' : 'Sword_Light_A';
-        } else if (m.id.includes('rage')) {
+        } else if (m.anim === 'rage_art' || m.id.includes('rage')) {
           name = 'Melee_Combo';
-        } else if (m.isThrow) {
+        } else if (m.isThrow || m.anim === 'throw_suplex') {
           name = 'OverhandThrow';
         } else if (m.armor) {
           name = 'Shield_Dash';
-        } else if (m.launch) {
+        } else if (m.anim === 'hopkick' || m.anim === 'somersault' || m.anim === 'flying_kick') {
+          name = 'BackFlip';
+        } else if (m.launch || m.anim === 'uppercut_r' || m.anim === 'electric_upper') {
           name = 'Melee_Uppercut';
-        } else if (m.height === 'low') {
+        } else if (m.anim === 'low_sweep' || m.anim === 'hell_sweep') {
           name = 'Slide_Start';
+        } else if (m.anim === 'knee_strike') {
+          name = 'Melee_Knee';
+        } else if (
+          m.anim === 'hook_r' ||
+          m.anim === 'deathfist' ||
+          m.anim === 'demon_paw' ||
+          m.anim === 'hammer_fist'
+        ) {
+          name = 'Melee_Hook';
+        } else if (m.height === 'low') {
+          name = m.limb === 'lp' || m.limb === 'rp' ? 'Punch_Jab' : 'Slide_Start';
         } else if (m.limb === 'lp') {
           name = 'Punch_Jab';
         } else if (m.limb === 'rp') {
@@ -632,14 +694,15 @@ export class MocapFighterAnimator {
       }
 
       case 'walk': {
-        const forward = f.vx * f.facing >= -0.001;
+        const forward = f.dashFrames > 0 ? f.dashDir >= 0 : f.vx * f.facing >= -0.001;
+        const speedMul = f.dashFrames > 0 ? 1.85 : 1.2;
         const name = f.crouching
           ? 'Crouch_Fwd_Loop'
           : forward
             ? 'Walk_Fwd_Loop'
             : 'Walk_Bwd_Loop';
         const clip = this.pack.clips.get(name);
-        return { name, timeSec: clip ? (clockSec * 1.2) % clip.durationSec : 0 };
+        return { name, timeSec: clip ? (clockSec * speedMul) % clip.durationSec : 0 };
       }
 
       default:

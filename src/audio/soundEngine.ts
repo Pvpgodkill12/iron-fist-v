@@ -107,16 +107,19 @@ export class TekkenSoundEngine {
       const ev = events[i];
       switch (ev.kind) {
         case 'whiff':
+        case 'sidestep_evade':
           this.playWhoosh();
           break;
         case 'hit':
           this.playImpact(ev.power, false);
           break;
         case 'counter_hit':
+        case 'whiff_punish':
         case 'launch':
         case 'bound':
           this.playImpact(Math.max(0.85, ev.power), true);
           if (ev.kind === 'counter_hit') this.announce('Counter Hit!');
+          else if (ev.kind === 'whiff_punish') this.announce('Punish!');
           break;
         case 'block':
           this.playBlock();

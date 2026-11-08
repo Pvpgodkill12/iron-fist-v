@@ -9,7 +9,7 @@
     (f32.min (local.get $hi) (f32.max (local.get $lo) (local.get $v)))
   )
 
-  ;; 1. 3D Fighter Capsule Separation & Arena Boundary Clamping
+  ;; 1. 3D Fighter Capsule Separation & Anti-Corner-Trap Boundary Solver
   ;; Writes [x1, z1, x2, z2] to byte offset 0..12.
   ;; Returns bitmask: bit0 = P1 at X wall, bit1 = P2 at X wall.
   (func (export "resolve_capsules")
@@ -26,6 +26,12 @@
     (local $nz f32)
     (local $wall_mask i32)
 
+    ;; Pre-clamp inside stage bounds
+    (local.set $x1 (call $clamp (local.get $x1) (f32.neg (local.get $half_w)) (local.get $half_w)))
+    (local.set $x2 (call $clamp (local.get $x2) (f32.neg (local.get $half_w)) (local.get $half_w)))
+    (local.set $z1 (call $clamp (local.get $z1) (f32.neg (local.get $half_d)) (local.get $half_d)))
+    (local.set $z2 (call $clamp (local.get $z2) (f32.neg (local.get $half_d)) (local.get $half_d)))
+
     (local.set $dx (f32.sub (local.get $x2) (local.get $x1)))
     (local.set $dz (f32.sub (local.get $z2) (local.get $z1)))
     (local.set $dist_sq
@@ -38,15 +44,16 @@
     (if (f32.lt (local.get $dist_sq) (f32.mul (local.get $min_dist) (local.get $min_dist)))
       (then
         (local.set $dist (f32.sqrt (local.get $dist_sq)))
-        (if (f32.lt (local.get $dist) (f32.const 0.0001))
+        ;; Strongly prefer X-axis separation over Z-push so wall pressure never shoves fighters into Z-depth!
+        (if (f32.lt (f32.abs (local.get $dx)) (f32.const 0.08))
           (then
-            (local.set $nx (f32.const 1.0))
+            (local.set $nx (select (f32.const 1.0) (f32.const -1.0) (f32.le (local.get $x1) (local.get $x2))))
             (local.set $nz (f32.const 0.0))
-            (local.set $overlap (f32.mul (local.get $min_dist) (f32.const 0.5)))
+            (local.set $overlap (f32.mul (f32.sub (local.get $min_dist) (f32.abs (local.get $dx))) (f32.const 0.5)))
           )
           (else
             (local.set $nx (f32.div (local.get $dx) (local.get $dist)))
-            (local.set $nz (f32.div (local.get $dz) (local.get $dist)))
+            (local.set $nz (f32.mul (f32.div (local.get $dz) (local.get $dist)) (f32.const 0.35)))
             (local.set $overlap (f32.mul (f32.sub (local.get $min_dist) (local.get $dist)) (f32.const 0.5)))
           )
         )
@@ -63,11 +70,36 @@
     (local.set $z1 (call $clamp (local.get $z1) (f32.neg (local.get $half_d)) (local.get $half_d)))
     (local.set $z2 (call $clamp (local.get $z2) (f32.neg (local.get $half_d)) (local.get $half_d)))
 
+    ;; Post-clamp anti-corner-stacking guard: if both got clamped against the left or right wall, push outer fighter inward!
+    (local.set $dx (f32.abs (f32.sub (local.get $x2) (local.get $x1))))
+    (if (f32.lt (local.get $dx) (f32.mul (local.get $min_dist) (f32.const 0.78)))
+      (then
+        (if (f32.le (local.get $x1) (f32.add (f32.neg (local.get $half_w)) (f32.const 0.08)))
+          (then
+            ;; At Left Wall: keep inner pinned fighter at wall, push outer fighter right!
+            (if (f32.le (local.get $x1) (local.get $x2))
+              (then (local.set $x2 (f32.add (local.get $x1) (f32.mul (local.get $min_dist) (f32.const 0.82)))))
+              (else (local.set $x1 (f32.add (local.get $x2) (f32.mul (local.get $min_dist) (f32.const 0.82)))))
+            )
+          )
+        )
+        (if (f32.ge (local.get $x1) (f32.sub (local.get $half_w) (f32.const 0.08)))
+          (then
+            ;; At Right Wall: push outer fighter left!
+            (if (f32.ge (local.get $x1) (local.get $x2))
+              (then (local.set $x2 (f32.sub (local.get $x1) (f32.mul (local.get $min_dist) (f32.const 0.82)))))
+              (else (local.set $x1 (f32.sub (local.get $x2) (f32.mul (local.get $min_dist) (f32.const 0.82)))))
+            )
+          )
+        )
+      )
+    )
+
     (local.set $wall_mask (i32.const 0))
-    (if (f32.ge (f32.abs (local.get $x1)) (f32.sub (local.get $half_w) (f32.const 0.04)))
+    (if (f32.ge (f32.abs (local.get $x1)) (f32.sub (local.get $half_w) (f32.const 0.06)))
       (then (local.set $wall_mask (i32.or (local.get $wall_mask) (i32.const 1))))
     )
-    (if (f32.ge (f32.abs (local.get $x2)) (f32.sub (local.get $half_w) (f32.const 0.04)))
+    (if (f32.ge (f32.abs (local.get $x2)) (f32.sub (local.get $half_w) (f32.const 0.06)))
       (then (local.set $wall_mask (i32.or (local.get $wall_mask) (i32.const 2))))
     )
 
@@ -78,7 +110,7 @@
     (local.get $wall_mask)
   )
 
-  ;; 2. True 3D Limb Hitbox, Sidestep Evasion & High/Low Crush Check
+  ;; 2. True Tekken 3D Lock-On Limb Hitbox, Sidestep Evasion & High/Low Crush Check
   ;; height_code: 0 = low, 1 = mid, 2 = high, 3 = special/unblockable
   (func (export "check_3d_hit")
     (param $ax f32) (param $ay f32) (param $az f32)
@@ -87,34 +119,34 @@
     (param $dx f32) (param $dy f32) (param $dz f32)
     (param $crouching i32) (param $sidestep_frames i32)
     (result i32)
-    (local $forward_dist f32)
     (local $z_diff f32)
-    (local $max_z f32)
+    (local $dist_3d f32)
 
-    ;; Check forward reach along fighter facing axis
-    (local.set $forward_dist (f32.mul (f32.sub (local.get $dx) (local.get $ax)) (local.get $facing)))
-    (if (f32.lt (local.get $forward_dist) (f32.const -0.25))
-      (then (return (i32.const 0)))
-    )
-    (if (f32.gt (local.get $forward_dist) (local.get $reach))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Check 3D Z-axis depth & sidestep evasion vs homing moves
     (local.set $z_diff (f32.abs (f32.sub (local.get $dz) (local.get $az))))
-    (local.set $max_z
-      (select
-        (f32.mul (local.get $hit_depth) (f32.const 2.25))
-        (select
-          (f32.mul (local.get $hit_depth) (f32.const 0.68))
-          (local.get $hit_depth)
-          (i32.gt_s (local.get $sidestep_frames) (i32.const 0))
+    (local.set $dist_3d
+      (f32.sqrt
+        (f32.add
+          (f32.mul (f32.sub (local.get $dx) (local.get $ax)) (f32.sub (local.get $dx) (local.get $ax)))
+          (f32.mul (local.get $z_diff) (local.get $z_diff))
         )
-        (i32.eq (local.get $tracking) (i32.const 1))
       )
     )
-    (if (f32.gt (local.get $z_diff) (local.get $max_z))
+    ;; True 3D lock-on reach check (works at any 3D angle, wall, or corner!)
+    (if (f32.gt (local.get $dist_3d) (f32.add (local.get $reach) (f32.const 0.12)))
       (then (return (i32.const 0)))
+    )
+
+    ;; Active 3D Sidestep Evasion: non-homing linear attacks whiff when defender is actively sidestepping off-axis!
+    (if
+      (i32.and
+        (i32.eq (local.get $tracking) (i32.const 0))
+        (i32.gt_s (local.get $sidestep_frames) (i32.const 0))
+      )
+      (then
+        (if (f32.gt (local.get $z_diff) (f32.mul (local.get $hit_depth) (f32.const 0.56)))
+          (then (return (i32.const 0)))
+        )
+      )
     )
 
     ;; Airborne juggle height window

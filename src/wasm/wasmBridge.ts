@@ -93,39 +93,54 @@ function createCspSafeKernelFallback(): CombatWasmExports {
   return {
     memory: { buffer: buf },
     resolve_capsules(x1, z1, x2, z2, minDist, halfW, halfD) {
-      let dx = x2 - x1;
-      let dz = z2 - z1;
-      const distSq = dx * dx + dz * dz;
-      const minSq = minDist * minDist;
-      if (distSq < minSq) {
-        if (distSq < 1e-6) {
-          const push = minDist * 0.5;
-          if (x1 <= x2) {
-            x1 -= push;
-            x2 += push;
-          } else {
-            x1 += push;
-            x2 -= push;
-          }
-        } else {
-          const dist = Math.sqrt(distSq);
-          const overlap = (minDist - dist) * 0.5;
-          dx /= dist;
-          dz /= dist;
-          x1 -= dx * overlap;
-          z1 -= dz * overlap;
-          x2 += dx * overlap;
-          z2 += dz * overlap;
-        }
-      }
       x1 = clamp(x1, -halfW, halfW);
       x2 = clamp(x2, -halfW, halfW);
       z1 = clamp(z1, -halfD, halfD);
       z2 = clamp(z2, -halfD, halfD);
 
+      const dx = x2 - x1;
+      const dz = z2 - z1;
+      const distSq = dx * dx + dz * dz;
+      const minSq = minDist * minDist;
+      if (distSq < minSq) {
+        const dist = Math.sqrt(distSq);
+        let nx = 1;
+        let nz = 0;
+        let overlap = minDist * 0.5;
+        if (Math.abs(dx) < 0.08) {
+          nx = x1 <= x2 ? 1 : -1;
+          nz = 0;
+          overlap = (minDist - Math.abs(dx)) * 0.5;
+        } else {
+          nx = dx / dist;
+          nz = (dz / dist) * 0.35;
+          overlap = (minDist - dist) * 0.5;
+        }
+        x1 -= nx * overlap;
+        z1 -= nz * overlap;
+        x2 += nx * overlap;
+        z2 += nz * overlap;
+      }
+
+      x1 = clamp(x1, -halfW, halfW);
+      x2 = clamp(x2, -halfW, halfW);
+      z1 = clamp(z1, -halfD, halfD);
+      z2 = clamp(z2, -halfD, halfD);
+
+      if (Math.abs(x2 - x1) < minDist * 0.78) {
+        if (x1 <= -halfW + 0.08) {
+          if (x1 <= x2) x2 = x1 + minDist * 0.82;
+          else x1 = x2 + minDist * 0.82;
+        }
+        if (x1 >= halfW - 0.08) {
+          if (x1 >= x2) x2 = x1 - minDist * 0.82;
+          else x1 = x2 - minDist * 0.82;
+        }
+      }
+
       let wallMask = 0;
-      if (Math.abs(x1) >= halfW - 0.04) wallMask |= 1;
-      if (Math.abs(x2) >= halfW - 0.04) wallMask |= 2;
+      if (Math.abs(x1) >= halfW - 0.06) wallMask |= 1;
+      if (Math.abs(x2) >= halfW - 0.06) wallMask |= 2;
 
       f32[0] = x1;
       f32[1] = z1;
@@ -138,7 +153,7 @@ function createCspSafeKernelFallback(): CombatWasmExports {
       ax,
       _ay,
       az,
-      facing,
+      _facing,
       reach,
       hitDepth,
       heightCode,
@@ -149,17 +164,13 @@ function createCspSafeKernelFallback(): CombatWasmExports {
       crouching,
       sidestepFrames,
     ) {
-      const forwardDist = (dx - ax) * facing;
-      if (forwardDist < -0.25 || forwardDist > reach) return 0;
-
       const zDiff = Math.abs(dz - az);
-      const maxZ =
-        tracking === 1
-          ? hitDepth * 2.25
-          : sidestepFrames > 0
-            ? hitDepth * 0.68
-            : hitDepth;
-      if (zDiff > maxZ) return 0;
+      const dist3d = Math.hypot(dx - ax, zDiff);
+      if (dist3d > reach + 0.12) return 0;
+
+      if (tracking === 0 && sidestepFrames > 0 && zDiff > hitDepth * 0.56) {
+        return 0;
+      }
 
       if (dy > 0.12) {
         if (dy > 1.95) return 0;

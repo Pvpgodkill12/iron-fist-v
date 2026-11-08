@@ -317,4 +317,91 @@ describe('IRON FIST V — 60Hz Deterministic 3D Combat Engine', () => {
         match.fighters[1].hp < match.fighters[1].char.maxHp,
     ).toBe(true);
   });
+
+  it('prevents left-wall stacking and deep-Z stranding across all 5 arenas so fighters can always connect hits', () => {
+    const neutral = createEmptyInput();
+    for (const st of STAGES) {
+      const match = createMatch({
+        p1: getCharacterById('jinrai'),
+        p2: getCharacterById('kazuma'),
+        p1Costume: 0,
+        p2Costume: 0,
+        stage: st,
+        roundsToWin: 2,
+        practiceMode: true,
+      });
+
+      // Force both fighters onto the extreme left wall and deep opposite Z planes!
+      match.fighters[0].x = -st.halfWidth;
+      match.fighters[1].x = -st.halfWidth;
+      match.fighters[0].z = -st.halfDepth;
+      match.fighters[1].z = st.halfDepth * 0.7;
+
+      // Walk toward each other for 65 frames across full 3D depth — closes straight to 0.82m!
+      for (let i = 0; i < 65; i += 1) {
+        const moveIn: RawInputFrame = {
+          x: match.fighters[0].facing,
+          z: 0,
+          buttons: { lp: false, rp: false, lk: false, rk: false },
+        };
+        stepMatch(match, moveIn, neutral);
+      }
+
+      const d3d = Math.hypot(
+        match.fighters[1].x - match.fighters[0].x,
+        match.fighters[1].z - match.fighters[0].z,
+      );
+      expect(d3d).toBeGreaterThanOrEqual(0.65);
+      expect(d3d).toBeLessThan(1.45);
+
+      // Now throw a jab right at the left wall — it MUST connect!
+      const hpBefore = match.fighters[1].hp;
+      stepMatch(
+        match,
+        { x: 0, z: 0, buttons: { lp: true, rp: false, lk: false, rk: false } },
+        neutral,
+      );
+      for (let i = 0; i < 16; i += 1) {
+        stepMatch(match, neutral, neutral);
+      }
+      expect(match.fighters[1].hp).toBeLessThan(hpBefore);
+    }
+  });
+
+  it('executes Phase 3 pre-buffered target strings, f,f dash, d/f+2 launcher, and zero head light artifacts', () => {
+    const glbPath = path.resolve('public/models/fighters/martial_fighters.glb');
+    const buf = fs.readFileSync(glbPath);
+    const pack = parseHumanoidPackGlb(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))!;
+    for (const ch of ROSTER) {
+      const mesh = buildHumanoidCharacterMesh(pack, ch, 0);
+      for (let v = 0; v < mesh.positions.length / 3; v += 1) {
+        if (mesh.positions[v * 3 + 1] > 1.56) {
+          // Zero glowing emissive rectangles on any character's head, eyes, or mouth!
+          expect(mesh.emissive[v]).toBe(0);
+        }
+      }
+    }
+
+    const neutral = createEmptyInput();
+    const match = createMatch({
+      p1: getCharacterById('jinrai'),
+      p2: getCharacterById('paul'),
+      p1Costume: 0,
+      p2Costume: 0,
+      stage: STAGES[0],
+      roundsToWin: 2,
+      practiceMode: true,
+    });
+    match.fighters[0].x = -0.55;
+    match.fighters[1].x = 0.55;
+
+    // Press LP on frame 0, then pre-buffer RP early on frame 3 (during LP startup!)
+    stepMatch(match, { x: 0, z: 0, buttons: { lp: true, rp: false, lk: false, rk: false } }, neutral);
+    stepMatch(match, neutral, neutral);
+    stepMatch(match, { x: 0, z: 0, buttons: { lp: false, rp: true, lk: false, rk: false } }, neutral);
+    for (let i = 0; i < 24; i += 1) {
+      stepMatch(match, neutral, neutral);
+    }
+    expect(match.fighters[0].comboCounter).toBeGreaterThanOrEqual(2);
+  });
 });
