@@ -39,6 +39,15 @@ import {
   buildFighterMeshData,
   hexToLinear,
 } from './fighterMesh';
+import {
+  HUMANOID_JOINT_CHEST,
+  HUMANOID_JOINT_HAND_R,
+  MocapFighterAnimator,
+  buildHumanoidCharacterMesh,
+  getHumanoidPack,
+  loadHumanoidPack,
+  onHumanoidPackReady,
+} from './humanoidPack';
 import { buildStageGeometry } from './stageBuilder';
 import { buildStageFloorCanvas } from './stageTextures';
 
@@ -95,9 +104,11 @@ export class FightSceneEngine implements SceneEngineLike {
     new FighterRigAnimator(),
     new FighterRigAnimator(),
   ];
+  private mocapAnimators: [MocapFighterAnimator, MocapFighterAnimator] | null = null;
 
   private fighterMeshes: [MeshHandle | null, MeshHandle | null] = [null, null];
   private fighterMeshKeys: [string, string] = ['', ''];
+  private lastPair: [CharacterData, 0 | 1, CharacterData, 0 | 1] | null = null;
   private visibleFighterCount: 0 | 1 | 2 = 2;
 
   private stageFloorMesh: MeshHandle | null = null;
@@ -241,11 +252,10 @@ export class FightSceneEngine implements SceneEngineLike {
       for (let i = 0; i < this.visibleFighterCount; i += 1) {
         const m = this.fighterMeshes[i];
         if (m !== null) {
-          sink.skinnedMesh(
-            m,
-            this.fighterNodes[i].worldMatrix,
-            this.animators[i].skeleton.palette,
-          );
+          const pal = this.mocapAnimators
+            ? this.mocapAnimators[i].skeleton.palette
+            : this.animators[i].skeleton.palette;
+          sink.skinnedMesh(m, this.fighterNodes[i].worldMatrix, pal);
         }
       }
     };
@@ -261,16 +271,28 @@ export class FightSceneEngine implements SceneEngineLike {
       for (let i = 0; i < this.visibleFighterCount; i += 1) {
         const m = this.fighterMeshes[i];
         if (m !== null) {
-          sink.skinnedMesh(
-            m,
-            this.fighterNodes[i].worldMatrix,
-            this.animators[i].skeleton.palette,
-          );
+          const pal = this.mocapAnimators
+            ? this.mocapAnimators[i].skeleton.palette
+            : this.animators[i].skeleton.palette;
+          sink.skinnedMesh(m, this.fighterNodes[i].worldMatrix, pal);
         }
       }
     };
 
     this.renderer.resize();
+
+    // Stream 65-bone CC0 Humanoid 3D Models + 34 Martial-Arts Mocap Clips and hot-swap seamlessly!
+    void loadHumanoidPack();
+    onHumanoidPackReady(() => {
+      const pack = getHumanoidPack();
+      if (!pack) return;
+      this.mocapAnimators = [new MocapFighterAnimator(pack), new MocapFighterAnimator(pack)];
+      this.fighterMeshKeys = ['', ''];
+      if (this.lastPair) {
+        const [p1, c1, p2, c2] = this.lastPair;
+        this.ensureFightersLoaded(p1, c1, p2, c2);
+      }
+    });
   }
 
   static async create(
@@ -411,19 +433,29 @@ export class FightSceneEngine implements SceneEngineLike {
     p2: CharacterData,
     p2Costume: 0 | 1,
   ): void {
-    const k0 = `${p1.id}:${p1Costume}`;
+    this.lastPair = [p1, p1Costume, p2, p2Costume];
+    const pack = getHumanoidPack();
+    const modeTag = pack ? 'glb65' : 'proc20';
+
+    const k0 = `${modeTag}:${p1.id}:${p1Costume}`;
     if (this.fighterMeshKeys[0] !== k0) {
       if (this.fighterMeshes[0] !== null) this.renderer.disposeMesh(this.fighterMeshes[0]);
-      this.fighterMeshes[0] = this.renderer.createMesh(buildFighterMeshData(p1, p1Costume));
+      const data0 = pack
+        ? buildHumanoidCharacterMesh(pack, p1, p1Costume)
+        : buildFighterMeshData(p1, p1Costume);
+      this.fighterMeshes[0] = this.renderer.createMesh(data0);
       this.fighterMeshKeys[0] = k0;
     }
 
     const actualP2Costume: 0 | 1 =
       p1.id === p2.id && p1Costume === p2Costume ? (p1Costume === 0 ? 1 : 0) : p2Costume;
-    const k1 = `${p2.id}:${actualP2Costume}`;
+    const k1 = `${modeTag}:${p2.id}:${actualP2Costume}`;
     if (this.fighterMeshKeys[1] !== k1) {
       if (this.fighterMeshes[1] !== null) this.renderer.disposeMesh(this.fighterMeshes[1]);
-      this.fighterMeshes[1] = this.renderer.createMesh(buildFighterMeshData(p2, actualP2Costume));
+      const data1 = pack
+        ? buildHumanoidCharacterMesh(pack, p2, actualP2Costume)
+        : buildFighterMeshData(p2, actualP2Costume);
+      this.fighterMeshes[1] = this.renderer.createMesh(data1);
       this.fighterMeshKeys[1] = k1;
     }
   }
@@ -573,8 +605,41 @@ export class FightSceneEngine implements SceneEngineLike {
       for (let i = 0; i < 2; i += 1) {
         const f = state.fighters[i];
         if (f.rageActive && state.tick % 6 === i * 3) {
-          this.animators[i].readJointArenaPos(JOINT_WRIST_R, f.x, f.y, f.z, f.facing, this.scratchA);
-          this.animators[i].readJointArenaPos(JOINT_CHEST, f.x, f.y, f.z, f.facing, this.scratchB);
+          if (this.mocapAnimators) {
+            this.mocapAnimators[i].readJointArenaPos(
+              HUMANOID_JOINT_HAND_R,
+              f.x,
+              f.y,
+              f.z,
+              f.facing,
+              this.scratchA,
+            );
+            this.mocapAnimators[i].readJointArenaPos(
+              HUMANOID_JOINT_CHEST,
+              f.x,
+              f.y,
+              f.z,
+              f.facing,
+              this.scratchB,
+            );
+          } else {
+            this.animators[i].readJointArenaPos(
+              JOINT_WRIST_R,
+              f.x,
+              f.y,
+              f.z,
+              f.facing,
+              this.scratchA,
+            );
+            this.animators[i].readJointArenaPos(
+              JOINT_CHEST,
+              f.x,
+              f.y,
+              f.z,
+              f.facing,
+              this.scratchB,
+            );
+          }
           const s = (this.seedCounter += 1);
           this.boltPool.strike(
             this.scratchB[0],
@@ -618,8 +683,9 @@ export class FightSceneEngine implements SceneEngineLike {
     const y1 = lerp(f1.prevY, f1.y, alpha);
     const z1 = lerp(f1.prevZ, f1.z, alpha);
 
-    this.poseAndPlaceFighter(0, f0, x0, y0, z0);
-    this.poseAndPlaceFighter(1, f1, x1, y1, z1);
+    const isOutro = state.phase === 'round_over' || state.phase === 'match_over';
+    this.poseAndPlaceFighter(0, f0, x0, y0, z0, isOutro);
+    this.poseAndPlaceFighter(1, f1, x1, y1, z1, isOutro);
     this.updateTekkenCamera(state, x0, y0, z0, x1, y1, z1);
 
     const aspect = this.canvas.height > 0 ? this.canvas.width / this.canvas.height : 16 / 9;
@@ -737,11 +803,18 @@ export class FightSceneEngine implements SceneEngineLike {
         sidestepDir: 0,
         vy: 0,
         juggleHits: 0,
+        hp: 100,
+        comboCounter: 0,
       } as unknown as FighterSim;
-      this.animators[0].update(dummy0, this.clockSec);
 
-      // Place P1 hero character cleanly in the open viewport space!
-      const heroX = isPortrait ? 0 : 0.72;
+      if (this.mocapAnimators) {
+        this.mocapAnimators[0].update(dummy0, this.clockSec, 1 / 60, true);
+      } else {
+        this.animators[0].update(dummy0, this.clockSec);
+      }
+
+      const isShortLandscape = !isPortrait && this.canvas.clientHeight <= 560;
+      const heroX = isPortrait ? 0 : isShortLandscape ? 0.85 : 0.72;
       this.fighterNodes[0].setPosition(heroX, 0, 0.4);
       this.fighterNodes[0].setRotationAxisAngle(
         0,
@@ -751,16 +824,16 @@ export class FightSceneEngine implements SceneEngineLike {
       );
       this.fighterNodes[0].updateWorld();
 
-      this.camera.position[0] = isPortrait ? Math.sin(this.clockSec * 0.4) * 0.18 : 0.12;
-      this.camera.position[1] = isPortrait ? 1.32 : 1.28;
-      this.camera.position[2] = isPortrait ? 3.55 : 2.95;
+      this.camera.position[0] = isPortrait ? Math.sin(this.clockSec * 0.4) * 0.18 : 0.14;
+      this.camera.position[1] = isPortrait ? 1.28 : isShortLandscape ? 1.18 : 1.26;
+      this.camera.position[2] = isPortrait ? 3.65 : isShortLandscape ? 3.25 : 2.98;
       this.camera.lookAt(
-        isPortrait ? 0 : 0.22,
-        isPortrait ? 0.72 : 1.02,
+        isPortrait ? 0 : isShortLandscape ? 0.28 : 0.22,
+        isPortrait ? 0.74 : isShortLandscape ? 0.88 : 0.98,
         0.4,
       );
     } else {
-      // 'home' attract camera: offset fighters slightly right on desktop so left menu never covers them
+      // 'home' attract camera: offset fighters slightly right on desktop/landscape so left menu never covers them
       this.visibleFighterCount = 2;
       const dummy0 = {
         char: p1,
@@ -772,6 +845,8 @@ export class FightSceneEngine implements SceneEngineLike {
         sidestepDir: 0,
         vy: 0,
         juggleHits: 0,
+        hp: 100,
+        comboCounter: 0,
       } as unknown as FighterSim;
       const dummy1 = {
         char: p2,
@@ -783,10 +858,17 @@ export class FightSceneEngine implements SceneEngineLike {
         sidestepDir: 0,
         vy: 0,
         juggleHits: 0,
+        hp: 100,
+        comboCounter: 0,
       } as unknown as FighterSim;
 
-      this.animators[0].update(dummy0, this.clockSec);
-      this.animators[1].update(dummy1, this.clockSec + 0.7);
+      if (this.mocapAnimators) {
+        this.mocapAnimators[0].update(dummy0, this.clockSec, 1 / 60, false);
+        this.mocapAnimators[1].update(dummy1, this.clockSec + 0.7, 1 / 60, false);
+      } else {
+        this.animators[0].update(dummy0, this.clockSec);
+        this.animators[1].update(dummy1, this.clockSec + 0.7);
+      }
 
       const centerOffset = isPortrait ? 0 : 0.65;
       this.fighterNodes[0].setPosition(centerOffset - 1.25, 0, 0.2);
@@ -842,8 +924,13 @@ export class FightSceneEngine implements SceneEngineLike {
     x: number,
     y: number,
     z: number,
+    isOutro = false,
   ): void {
-    this.animators[idx].update(f, this.clockSec);
+    if (this.mocapAnimators) {
+      this.mocapAnimators[idx].update(f, this.clockSec, 1 / 60, false, isOutro);
+    } else {
+      this.animators[idx].update(f, this.clockSec);
+    }
     const node = this.fighterNodes[idx];
     node.setPosition(x, y, z);
     const yaw = f.facing === 1 ? Math.PI * 0.5 : -Math.PI * 0.5;

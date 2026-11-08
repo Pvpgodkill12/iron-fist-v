@@ -172,13 +172,13 @@ export class UnifiedInputManager {
     ...buttonContainers: HTMLElement[]
   ): void {
     const DEADZONE_PX = 12;
-    const MAX_RADIUS_PX = 48;
+    let maxRadiusPx = 44;
 
     const updateStick = (clientX: number, clientY: number) => {
       const dx = clientX - this.stickOriginX;
       const dy = clientY - this.stickOriginY;
       const dist = Math.hypot(dx, dy);
-      const clamped = Math.min(dist, MAX_RADIUS_PX);
+      const clamped = Math.min(dist, maxRadiusPx);
       const nx = dist > 0.001 ? (dx / dist) * clamped : 0;
       const ny = dist > 0.001 ? (dy / dist) * clamped : 0;
       stickKnob.style.transform = `translate(calc(-50% + ${nx.toFixed(1)}px), calc(-50% + ${ny.toFixed(1)}px))`;
@@ -204,6 +204,7 @@ export class UnifiedInputManager {
         // Ignore synthetic pointer capture edge cases
       }
       const rect = stickZone.getBoundingClientRect();
+      maxRadiusPx = Math.max(28, rect.width * 0.34);
       this.stickPointerId = e.pointerId;
       this.stickOriginX = rect.left + rect.width * 0.5;
       this.stickOriginY = rect.top + rect.height * 0.5;

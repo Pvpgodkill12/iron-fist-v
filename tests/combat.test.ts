@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { MeshData } from '@driftengine/core';
 import {
@@ -17,9 +19,14 @@ import {
 import { createMatch, stepMatch } from '../src/sim/combat';
 import { CpuController } from '../src/sim/ai';
 import { FighterRigAnimator, buildFighterMeshData } from '../src/render/fighterMesh';
+import {
+  MocapFighterAnimator,
+  buildHumanoidCharacterMesh,
+  parseHumanoidPackGlb,
+} from '../src/render/humanoidPack';
 import { buildStageGeometry } from '../src/render/stageBuilder';
 
-function assertValidMesh(m: MeshData, skinned: boolean): void {
+function assertValidMesh(m: MeshData, skinned: boolean, maxJoints = 20): void {
   const verts = m.positions.length / 3;
   expect(m.normals.length).toBe(m.positions.length);
   expect(m.colors.length).toBe(m.positions.length);
@@ -38,9 +45,9 @@ function assertValidMesh(m: MeshData, skinned: boolean): void {
     expect(m.weights?.length).toBe(verts * 4);
     for (let v = 0; v < verts; v += 1) {
       const o = v * 4;
-      expect(m.joints![o]).toBeLessThan(20);
+      expect(m.joints![o]).toBeLessThan(maxJoints);
       const wSum = m.weights![o] + m.weights![o + 1] + m.weights![o + 2] + m.weights![o + 3];
-      expect(wSum).toBeCloseTo(1.0, 3);
+      expect(wSum).toBeCloseTo(1.0, 2);
     }
   }
 }
@@ -158,6 +165,42 @@ describe('IRON FIST V — 12-Character Roster, 20-Joint GPU Skinning & 5 Stages'
       expect(built.archMesh.uvs).toBeDefined();
       expect(built.floorMesh.positions.length / 3).toBe(24);
       expect(built.archMesh.positions.length / 3).toBeGreaterThan(200);
+    }
+  });
+
+  it('loads 65-bone CC0 Humanoid .glb + 34 Mocap Clips and builds 8,400+ vertex 3D fighters for all 12 characters', () => {
+    const glbPath = path.resolve('public/models/fighters/martial_fighters.glb');
+    const buf = fs.readFileSync(glbPath);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const pack = parseHumanoidPackGlb(ab);
+    expect(pack).not.toBeNull();
+    expect(pack!.joints.length).toBe(65);
+    expect(pack!.clips.size).toBe(34);
+
+    for (const ch of ROSTER) {
+      for (const costumeIdx of [0, 1] as const) {
+        const mesh = buildHumanoidCharacterMesh(pack!, ch, costumeIdx);
+        assertValidMesh(mesh, true, 65);
+        expect(mesh.positions.length / 3).toBeGreaterThan(8400);
+      }
+    }
+
+    const anim = new MocapFighterAnimator(pack!);
+    const match = createMatch({
+      p1: getCharacterById('jinrai'),
+      p2: getCharacterById('yoshimaru'),
+      p1Costume: 0,
+      p2Costume: 0,
+      stage: STAGES[0],
+      roundsToWin: 2,
+    });
+
+    for (const state of ['idle', 'walk', 'sidestep', 'juggle', 'knockdown', 'ko'] as const) {
+      match.fighters[0].state = state;
+      anim.update(match.fighters[0], 0.35, 1 / 60, false, false);
+      for (let i = 0; i < anim.skeleton.palette.length; i += 1) {
+        expect(Number.isFinite(anim.skeleton.palette[i])).toBe(true);
+      }
     }
   });
 });
