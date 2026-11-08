@@ -148,14 +148,16 @@ describe('IRON FIST V — 12-Character Roster, 20-Joint GPU Skinning & 5 Stages'
     }
   });
 
-  it('builds 3D architectural geometry & reflective floor film for all 5 Tekken 5 stages', () => {
+  it('builds glitch-free 3D floor & architecture geometry with UVs for all 5 stages', () => {
     expect(STAGES.length).toBe(5);
     for (const st of STAGES) {
       const built = buildStageGeometry(st);
-      assertValidMesh(built.worldMesh, false);
-      assertValidMesh(built.filmMesh, false);
-      expect(built.worldMesh.positions.length / 3).toBeGreaterThan(50);
-      expect(built.filmMesh.positions.length / 3).toBe(4);
+      assertValidMesh(built.floorMesh, false);
+      assertValidMesh(built.archMesh, false);
+      expect(built.floorMesh.uvs).toBeDefined();
+      expect(built.archMesh.uvs).toBeDefined();
+      expect(built.floorMesh.positions.length / 3).toBe(24);
+      expect(built.archMesh.positions.length / 3).toBeGreaterThan(200);
     }
   });
 });

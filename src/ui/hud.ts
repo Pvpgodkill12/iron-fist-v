@@ -7,7 +7,7 @@ const DIR_ARROW: Record<NumpadDir, string> = {
   2: '↓',
   3: '↘',
   4: '←',
-  5: '•',
+  5: '·',
   6: '→',
   7: '↖',
   8: '↑',
@@ -43,7 +43,6 @@ export class FightHudController {
   private p1CalloutExpireMs = 0;
   private p2CalloutExpireMs = 0;
 
-  // Cached values to avoid redundant DOM writes at 60fps
   private lastTimerSec = -1;
   private lastP1Hp = -1;
   private lastP2Hp = -1;
@@ -86,7 +85,7 @@ export class FightHudController {
     this.p2Name.textContent = f1.char.name;
     this.p1Style.textContent = f0.char.martialArt;
     this.p2Style.textContent = f1.char.martialArt;
-    this.stageBadgeEl.textContent = `${modeLabel} · ${state.config.stage.name}`;
+    this.stageBadgeEl.textContent = `${modeLabel} // ${state.config.stage.name}`;
     this.practicePanel.classList.toggle('hidden', !state.config.practiceMode);
     this.lastTimerSec = -1;
     this.lastP1Hp = -1;
@@ -136,7 +135,6 @@ export class FightHudController {
       this.p2CalloutExpireMs = 0;
     }
 
-    // Health & Red Recoverable Bars
     if (f0.hp !== this.lastP1Hp) {
       this.lastP1Hp = f0.hp;
       const pct = Math.max(0, Math.min(100, (f0.hp / f0.char.maxHp) * 100));
@@ -158,15 +156,13 @@ export class FightHudController {
       this.touchRageBtn.classList.toggle('rage-ready', f0.rageActive && !f0.rageArtUsed);
     }
 
-    // Timer
     const sec = state.config.infiniteTime ? 99 : Math.ceil(state.timerFrames / 60);
     if (sec !== this.lastTimerSec) {
       this.lastTimerSec = sec;
-      this.timerEl.textContent = state.config.infiniteTime ? '∞' : String(sec).padStart(2, '0');
+      this.timerEl.textContent = state.config.infiniteTime ? 'INF' : String(sec).padStart(2, '0');
       this.timerEl.classList.toggle('danger', !state.config.infiniteTime && sec <= 10);
     }
 
-    // Round Win Crystals
     const winsKey = `${state.wins[0]}:${state.wins[1]}:${state.config.roundsToWin}`;
     if (winsKey !== this.lastWinsKey) {
       this.lastWinsKey = winsKey;
@@ -174,22 +170,20 @@ export class FightHudController {
       this.renderCrystals(this.p2WinsEl, state.wins[1], state.config.roundsToWin);
     }
 
-    // Combo Counters
     if (f0.comboCounter >= 2) {
-      this.p1ComboEl.textContent = `${f0.comboCounter} HITS · ${f0.comboDamage} DMG`;
+      this.p1ComboEl.textContent = `${f0.comboCounter} HITS // ${f0.comboDamage} DMG`;
       this.p1ComboEl.classList.add('visible');
     } else {
       this.p1ComboEl.classList.remove('visible');
     }
 
     if (f1.comboCounter >= 2) {
-      this.p2ComboEl.textContent = `${f1.comboCounter} HITS · ${f1.comboDamage} DMG`;
+      this.p2ComboEl.textContent = `${f1.comboCounter} HITS // ${f1.comboDamage} DMG`;
       this.p2ComboEl.classList.add('visible');
     } else {
       this.p2ComboEl.classList.remove('visible');
     }
 
-    // Practice Mode Live Frame Data & Input History Tape!
     if (state.config.practiceMode && state.tick % 3 === 0) {
       this.updatePracticeReadout(f0, f1);
     }
@@ -210,10 +204,10 @@ export class FightHudController {
         ? `+${p1.lastFrameAdvantage}f`
         : `${p1.lastFrameAdvantage}f`;
     const moveInfo = m
-      ? `${m.name} (${m.height.toUpperCase()}) · Startup i${m.startup} · Active ${m.active}f · Rec ${m.recovery}f`
-      : `State: ${p1.state.toUpperCase()}${p1.crouching ? ' (CROUCH)' : ''}`;
+      ? `${m.name} [${m.height.toUpperCase()}] · i${m.startup} · Act ${m.active}f · Rec ${m.recovery}f`
+      : `STATE: ${p1.state.toUpperCase()}${p1.crouching ? ' [CROUCH]' : ''}`;
     const dist = Math.hypot(p2.x - p1.x, p2.z - p1.z).toFixed(2);
-    this.frameReadoutEl.textContent = `${moveInfo}  |  Frame Adv: ${adv}  |  3D Range: ${dist}m  |  Z-Offset: ${(p1.z - p2.z).toFixed(2)}m`;
+    this.frameReadoutEl.textContent = `${moveInfo}  |  ADV: ${adv}  |  DIST: ${dist}m`;
 
     const tape = p1.buffer.tape;
     let tapeHtml = '';
@@ -243,16 +237,16 @@ export function renderCharacterMoveListHtml(char: CharacterData): string {
       tag:
         tag ||
         [
-          m.electric ? '⚡ ELECTRIC' : '',
-          m.launch ? '🚀 LAUNCHER' : '',
-          m.bound ? '🌪️ TORNADO BOUND' : '',
-          m.homing ? '🎯 HOMING' : '',
-          m.armor ? '🛡️ POWER CRUSH' : '',
-          m.unblockable ? '🔥 UNBLOCKABLE' : '',
-          m.knockdown ? '💥 KNOCKDOWN' : '',
+          m.electric ? 'ELECTRIC' : '',
+          m.launch ? 'LAUNCHER' : '',
+          m.bound ? 'TORNADO' : '',
+          m.homing ? 'HOMING' : '',
+          m.armor ? 'ARMOR' : '',
+          m.unblockable ? 'UNBLOCKABLE' : '',
+          m.knockdown ? 'KNOCKDOWN' : '',
         ]
           .filter(Boolean)
-          .join(' · '),
+          .join(' / '),
     });
     if (m.next) {
       for (const nx of m.next) {
@@ -262,20 +256,20 @@ export function renderCharacterMoveListHtml(char: CharacterData): string {
     }
   };
 
-  pushMoveChain('1 (LP)', char.normals.lp, 'Basic High Jab');
-  pushMoveChain('2 (RP)', char.normals.rp, 'Basic Right Strike');
-  pushMoveChain('3 (LK)', char.normals.lk, 'Basic Left Kick');
-  pushMoveChain('4 (RK)', char.normals.rk, 'Basic Right Kick');
+  pushMoveChain('1', char.normals.lp, 'HIGH JAB');
+  pushMoveChain('2', char.normals.rp, 'RIGHT STRIKE');
+  pushMoveChain('3', char.normals.lk, 'LEFT KICK');
+  pushMoveChain('4', char.normals.rk, 'RIGHT KICK');
 
   for (const sp of char.specials) {
     pushMoveChain(sp.move.notation ?? sp.notation, sp.move);
   }
 
-  pushMoveChain('1+3', char.throws[0], '🤼 THROW (Break w/ 1)');
-  pushMoveChain('2+4', char.throws[1], '🤼 HEAVY THROW (Break w/ 2)');
-  pushMoveChain('1+2', char.powerCrush, '🛡️ ARMORED POWER CRUSH');
-  pushMoveChain('3+4', char.kiSpecial, '⚡ KI / HEAT SPECIAL');
-  pushMoveChain('1+2 (HP ≤ 25%)', char.rageArt, '🔥 RAGE ART SUPER');
+  pushMoveChain('1+3', char.throws[0], 'THROW [BREAK 1]');
+  pushMoveChain('2+4', char.throws[1], 'THROW [BREAK 2]');
+  pushMoveChain('1+2', char.powerCrush, 'POWER CRUSH');
+  pushMoveChain('3+4', char.kiSpecial, 'HEAT SPECIAL');
+  pushMoveChain('1+2 [RAGE]', char.rageArt, 'RAGE ART');
 
   return rows
     .map(
@@ -284,7 +278,7 @@ export function renderCharacterMoveListHtml(char: CharacterData): string {
         <div class="mv-cmd">${r.cmd}</div>
         <div class="mv-info">
           <div class="mv-name">${r.name} ${r.tag ? `<span class="mv-tag">${r.tag}</span>` : ''}</div>
-          <div class="mv-meta">Height: <b>${r.height}</b> · Startup: <b>i${r.startup}</b> · Damage: <b>${r.dmg}</b></div>
+          <div class="mv-meta">${r.height}  //  i${r.startup}  //  DMG ${r.dmg}</div>
         </div>
       </div>`,
     )

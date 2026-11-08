@@ -1,14 +1,12 @@
 import './style.css';
 import { startLoop } from '@driftengine/core';
 import { ROSTER, getCharacterById } from './data/roster';
-import { STAGES, getStageById } from './data/stages';
+import { STAGES } from './data/stages';
 import type {
   AiDifficulty,
   CharacterData,
   DummyBehavior,
-  GameMode,
   StageDefinition,
-  StageId,
 } from './data/types';
 import {
   combatKernelMode,
@@ -19,6 +17,7 @@ import { createMatch, resetRound, stepMatch, type MatchState } from './sim/comba
 import { CpuController } from './sim/ai';
 import {
   FightSceneEngine,
+  type MenuShowcaseMode,
   type QualityPreset,
   type SceneEngineLike,
 } from './render/engine';
@@ -26,15 +25,10 @@ import { UnifiedInputManager } from './input/controls';
 import { TekkenSoundEngine } from './audio/soundEngine';
 import { FightHudController, renderCharacterMoveListHtml } from './ui/hud';
 
-type ScreenState = 'title' | 'select' | 'match';
+type ScreenState = 'home' | 'play' | 'arena' | 'fighter' | 'settings' | 'standby' | 'match';
+type ActivePlayMode = '1v1' | 'training';
+type TouchSettingMode = 'auto' | 'on' | 'off';
 
-const ARCADE_LADDER_LENGTH = 8;
-
-/**
- * Reliable mobile + desktop button activator.
- * Fires immediately on clean touch `pointerup` (even inside Android bottom-sheet iframes that
- * cancel synthetic `click`) and deduplicates the trailing `click` event.
- */
 function onTap(el: HTMLElement | null, handler: () => void): void {
   if (!el) return;
   let lastFireMs = -1000;
@@ -51,17 +45,19 @@ function onTap(el: HTMLElement | null, handler: () => void): void {
   );
 
   el.addEventListener('pointerup', (e) => {
+    if ((el as HTMLButtonElement).disabled) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 22) return;
     const now = performance.now();
-    if (now - lastFireMs < 320) return;
+    if (now - lastFireMs < 300) return;
     lastFireMs = now;
     handler();
   });
 
   el.addEventListener('click', () => {
+    if ((el as HTMLButtonElement).disabled) return;
     const now = performance.now();
-    if (now - lastFireMs < 320) return;
+    if (now - lastFireMs < 300) return;
     lastFireMs = now;
     handler();
   });
@@ -69,13 +65,12 @@ function onTap(el: HTMLElement | null, handler: () => void): void {
 
 function bootGame(): void {
   const pill = document.getElementById('engine-pill');
-  if (pill) pill.textContent = 'ENGINE READY · TAP QUICK PLAY TO FIGHT!';
+  if (pill) pill.textContent = 'RENDERER INITIALIZING';
 
   window.addEventListener('error', (ev) => {
-    if (pill) pill.textContent = `ERR: ${ev.message}`;
+    if (pill) pill.textContent = `ERROR: ${ev.message}`;
   });
 
-  // Warm combat kernel synchronously (uses WASM when allowed, CSP-safe kernel in restricted iframes)
   getCombatWasm();
   void initCombatWasmAsync();
 
@@ -95,9 +90,9 @@ function bootGame(): void {
         ? 'WEBGPU'
         : scene.backend === 'webgl2'
           ? 'WEBGL2'
-          : '3D CANVAS';
-    const kernTag = combatKernelMode === 'wasm' ? 'WASM' : 'CSP-SAFE KERNEL';
-    pill.textContent = `${gpuTag} · DRIFTENGINE 4.14 · ${kernTag} · ${scene.quality.toUpperCase()}`;
+          : 'CANVAS 3D';
+    const kernTag = combatKernelMode === 'wasm' ? 'WASM' : 'JS KERNEL';
+    pill.textContent = `${gpuTag} // ${kernTag} // ${scene.quality.toUpperCase()}`;
   };
 
   const input = new UnifiedInputManager();
@@ -105,16 +100,23 @@ function bootGame(): void {
   const hud = new FightHudController();
   const cpu = new CpuController();
 
-  // UI Screen Elements
-  const screenTitle = document.getElementById('screen-title')!;
-  const screenSelect = document.getElementById('screen-select')!;
-  const screenHud = document.getElementById('screen-hud')!;
+  // Screens & Modals
+  const screens: Record<ScreenState, HTMLElement> = {
+    home: document.getElementById('screen-home')!,
+    play: document.getElementById('screen-play')!,
+    arena: document.getElementById('screen-arena')!,
+    fighter: document.getElementById('screen-fighter')!,
+    settings: document.getElementById('screen-settings')!,
+    standby: document.getElementById('screen-standby')!,
+    match: document.getElementById('screen-hud')!,
+  };
+
   const mobileTouchLayer = document.getElementById('mobile-touch-layer')!;
   const desktopControlBar = document.getElementById('desktop-control-bar')!;
+  const modalExit = document.getElementById('modal-exit')!;
   const modalPost = document.getElementById('modal-postmatch')!;
   const modalPause = document.getElementById('modal-pause')!;
 
-  // Bind Mobile Virtual Stick + Buttons AND Desktop Clickable Control Bar!
   input.bindMobileDom(
     document.getElementById('touch-stick-zone')!,
     document.getElementById('touch-stick-knob')!,
@@ -122,28 +124,22 @@ function bootGame(): void {
     desktopControlBar,
   );
 
-  // Unlock Web Audio on first user gesture
   const unlockOnce = () => sound.unlock();
   window.addEventListener('pointerdown', unlockOnce, { passive: true });
   window.addEventListener('keydown', unlockOnce, { passive: true });
 
-  // Persistent Selection & Mode State
-  let currentScreen: ScreenState = 'title';
-  let gameMode: GameMode = 'arcade';
+  // Game State
+  let currentScreen: ScreenState = 'home';
+  let activeMode: ActivePlayMode = '1v1';
   let p1Char: CharacterData = ROSTER[0]; // Jinrai Kazama
-  let p2Char: CharacterData = ROSTER[1]; // Kazuma Mishima
+  let cpuChar: CharacterData = ROSTER[1]; // Kazuma Mishima
   let p1Costume: 0 | 1 = 0;
-  let p2Costume: 0 | 1 = 0;
-  let pickingSlot: 1 | 2 = 1;
+  let cpuCostume: 0 | 1 = 0;
   let selectedStage: StageDefinition = STAGES[0];
   let difficulty: AiDifficulty = 2;
   let dummyBehavior: DummyBehavior = 'stand';
+  let touchMode: TouchSettingMode = 'auto';
 
-  // Arcade Championship Ladder State
-  let arcadeStageIdx = 0;
-  let arcadeOpponents: CharacterData[] = [];
-
-  // Active Match Simulation State
   let match: MatchState | null = null;
   let paused = false;
   let postMatchShown = false;
@@ -157,7 +153,7 @@ function bootGame(): void {
       const c = scene?.canvas ?? document.querySelector<HTMLElement>('#stage');
       c?.focus({ preventScroll: true });
     } catch {
-      // Ignore sandbox focus restrictions
+      // Ignore iframe focus restrictions
     }
   }
 
@@ -170,7 +166,13 @@ function bootGame(): void {
   }
   bindCanvasInteractions(initialCanvas);
 
-  // Start async GPU engine creation without blocking any UI buttons!
+  function syncSettingsQualityUi(q: QualityPreset): void {
+    document.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.quality === q);
+    });
+  }
+  syncSettingsQualityUi(initialQuality);
+
   void FightSceneEngine.create(initialCanvas, initialQuality).then((createdScene) => {
     scene = createdScene;
     if (scene.canvas !== initialCanvas) {
@@ -185,58 +187,53 @@ function bootGame(): void {
         match.config.p2Costume,
       );
     }
-    const btnQual = document.getElementById('btn-toggle-quality');
-    if (btnQual) btnQual.textContent = `✨ Graphics: ${scene.quality.toUpperCase()}`;
+    syncSettingsQualityUi(scene.quality);
     updateEnginePill();
     if (currentScreen === 'match') focusStage();
   });
 
-  window.addEventListener('resize', () => {
-    scene?.resize();
-    syncMobileTouchVisibility();
-  });
+  function shouldShowMobileTouch(): boolean {
+    if (touchMode === 'on') return true;
+    if (touchMode === 'off') return false;
+    return input.shouldShowTouchControls();
+  }
 
-  function syncMobileTouchVisibility(): void {
+  function syncHudControlOverlays(): void {
     const inActiveFight = currentScreen === 'match' && !paused && !postMatchShown;
-    const showTouch = inActiveFight && input.shouldShowTouchControls();
+    const showTouch = inActiveFight && shouldShowMobileTouch();
     mobileTouchLayer.classList.toggle('hidden', !showTouch);
     desktopControlBar.classList.toggle('hidden', !inActiveFight || showTouch);
   }
+
+  window.addEventListener('resize', () => {
+    scene?.resize();
+    syncHudControlOverlays();
+  });
 
   function showScreen(next: ScreenState): void {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
     currentScreen = next;
-    screenTitle.classList.toggle('hidden', next !== 'title');
-    screenSelect.classList.toggle('hidden', next !== 'select');
-    screenHud.classList.toggle('hidden', next !== 'match');
+    (Object.keys(screens) as ScreenState[]).forEach((key) => {
+      screens[key].classList.toggle('hidden', key !== next);
+    });
+    modalExit.classList.add('hidden');
     modalPost.classList.add('hidden');
     modalPause.classList.add('hidden');
     paused = false;
     postMatchShown = false;
-    syncMobileTouchVisibility();
+    syncHudControlOverlays();
     if (next === 'match') {
       requestAnimationFrame(() => focusStage());
     }
   }
 
-  // ==================== POPULATE ROSTER, STAGES & MOVE LIST ====================
+  // ==================== POPULATE ARENA SELECT & FIGHTER ROSTER ====================
+  const arenaGrid = document.getElementById('arena-grid')!;
   const rosterGrid = document.getElementById('roster-grid')!;
-  const stageSelect = document.getElementById('select-stage') as HTMLSelectElement;
   const moveListSelect = document.getElementById('movelist-char-select') as HTMLSelectElement;
   const moveListContainer = document.getElementById('movelist-container')!;
-
-  STAGES.forEach((st) => {
-    const opt = document.createElement('option');
-    opt.value = st.id;
-    opt.textContent = `${st.name} — ${st.subtitle}`;
-    stageSelect.appendChild(opt);
-  });
-  stageSelect.addEventListener('change', () => {
-    selectedStage = getStageById(stageSelect.value as StageId);
-    sound.playUiTick();
-  });
 
   ROSTER.forEach((ch) => {
     const opt = document.createElement('option');
@@ -253,33 +250,41 @@ function bootGame(): void {
   moveListSelect.addEventListener('change', () => refreshMoveList(moveListSelect.value));
   refreshMoveList(p1Char.id);
 
-  function renderSelectUi(): void {
+  function renderArenaSelectUi(): void {
+    document.getElementById('arena-preview-title')!.textContent = selectedStage.name;
+    document.getElementById('arena-preview-sub')!.textContent = selectedStage.subtitle;
+
+    arenaGrid.innerHTML = STAGES.map((st, idx) => {
+      const sel = st.id === selectedStage.id ? 'selected' : '';
+      return `
+        <button class="arena-card ${sel}" data-stage-idx="${idx}">
+          <div class="arena-card-num">ARENA 0${idx + 1}</div>
+          <div class="arena-card-name">${st.name}</div>
+        </button>`;
+    }).join('');
+
+    arenaGrid.querySelectorAll<HTMLButtonElement>('[data-stage-idx]').forEach((card) => {
+      onTap(card, () => {
+        const idx = Number(card.dataset.stageIdx);
+        selectedStage = STAGES[idx] ?? STAGES[0];
+        sound.playUiTick();
+        renderArenaSelectUi();
+      });
+    });
+  }
+
+  function renderFighterSelectUi(): void {
+    document.getElementById('fighter-arena-tag')!.textContent = `ARENA: ${selectedStage.name}`;
     document.getElementById('sel-p1-name')!.textContent = p1Char.name;
-    document.getElementById('sel-p1-style')!.textContent = `${p1Char.martialArt} · ${p1Char.country}`;
-    document.getElementById('sel-p1-stats')!.textContent = `HP ${p1Char.maxHp} · ${p1Char.archetype} · ${p1Char.costumes[p1Costume].label}`;
-
-    document.getElementById('sel-p2-name')!.textContent = p2Char.name;
-    document.getElementById('sel-p2-style')!.textContent = `${p2Char.martialArt} · ${p2Char.country}`;
-    document.getElementById('sel-p2-stats')!.textContent = `HP ${p2Char.maxHp} · ${p2Char.archetype} · ${p2Char.costumes[p2Costume].label}`;
-
-    document.getElementById('btn-p1-costume')!.textContent = p1Costume === 0 ? 'P1 Outfit' : 'P2 Outfit';
-    document.getElementById('btn-p2-costume')!.textContent = p2Costume === 0 ? 'P1 Outfit' : 'P2 Outfit';
-
-    document.getElementById('slot-card-p1')!.classList.toggle('active-slot', pickingSlot === 1);
-    document.getElementById('slot-card-p2')!.classList.toggle('active-slot', pickingSlot === 2);
-    document.getElementById('btn-pick-slot-p1')!.classList.toggle('selected', pickingSlot === 1);
-    document.getElementById('btn-pick-slot-p2')!.classList.toggle('selected', pickingSlot === 2);
+    document.getElementById('sel-p1-style')!.textContent = `${p1Char.martialArt} // ${p1Char.country}`;
+    document.getElementById('sel-p1-stats')!.textContent = `HP ${p1Char.maxHp} // ${p1Char.archetype}`;
+    document.getElementById('btn-p1-costume')!.textContent =
+      p1Costume === 0 ? 'OUTFIT 1' : 'OUTFIT 2';
 
     rosterGrid.innerHTML = ROSTER.map((ch) => {
-      const isP1 = ch.id === p1Char.id;
-      const isP2 = ch.id === p2Char.id;
-      const cls = ['roster-tile', isP1 ? 'p1-picked' : '', isP2 ? 'p2-picked' : '']
-        .filter(Boolean)
-        .join(' ');
-      const c0 = ch.costumes[0];
+      const sel = ch.id === p1Char.id ? 'selected' : '';
       return `
-        <button class="${cls}" data-char-id="${ch.id}">
-          <div class="tile-swatch" style="background: linear-gradient(90deg, ${c0.trim}, ${c0.aura})"></div>
+        <button class="roster-tile ${sel}" data-char-id="${ch.id}">
           <div class="tile-name">${ch.name}</div>
           <div class="tile-art">${ch.martialArt}</div>
         </button>`;
@@ -287,221 +292,233 @@ function bootGame(): void {
 
     rosterGrid.querySelectorAll<HTMLButtonElement>('[data-char-id]').forEach((tile) => {
       onTap(tile, () => {
-        const picked = getCharacterById(tile.dataset.charId!);
-        if (pickingSlot === 1) {
-          p1Char = picked;
-          if (gameMode !== 'arcade') pickingSlot = 2;
-        } else {
-          p2Char = picked;
-        }
+        p1Char = getCharacterById(tile.dataset.charId!);
         sound.playUiTick();
-        renderSelectUi();
+        renderFighterSelectUi();
       });
     });
   }
 
-  // ==================== BUILD ARCADE CHAMPIONSHIP LADDER ====================
-  function buildArcadeLadder(playerChar: CharacterData): CharacterData[] {
-    const pool = ROSTER.filter((c) => c.id !== playerChar.id && c.id !== 'jinpachi');
-    const shuffled = [...pool];
-    for (let i = shuffled.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = shuffled[i];
-      shuffled[i] = shuffled[j];
-      shuffled[j] = tmp;
-    }
-    const ladder = shuffled.slice(0, ARCADE_LADDER_LENGTH - 1);
-    ladder.push(getCharacterById('jinpachi'));
-    return ladder;
+  function pickRandomCpuOpponent(excludeId: string): { char: CharacterData; costume: 0 | 1 } {
+    const pool = ROSTER.filter((c) => c.id !== excludeId);
+    const chosen = pool[Math.floor(Math.random() * pool.length)] ?? ROSTER[1];
+    const costume: 0 | 1 = Math.random() < 0.5 ? 0 : 1;
+    return { char: chosen, costume };
   }
 
-  function startBattle(): void {
+  function startMatch(mode: ActivePlayMode): void {
+    activeMode = mode;
     sound.unlock();
     cpu.reset();
     input.resetTouch();
-    input.setP1SignatureNotation(p1Char.specials[0]?.notation ?? 'f,f+2');
 
-    let opp = p2Char;
-    let oppCostume: 0 | 1 = p2Costume;
+    let player = p1Char;
+    let playerCostume: 0 | 1 = p1Costume;
+    let opp = cpuChar;
+    let oppCostume: 0 | 1 = cpuCostume;
     let stage = selectedStage;
-    let modeLabel = 'FREE BATTLE';
+    let modeLabel = '1V1 BATTLE';
 
-    if (gameMode === 'arcade') {
-      opp = arcadeOpponents[arcadeStageIdx];
-      oppCostume = arcadeStageIdx % 2 === 1 ? 1 : 0;
-      const isBoss = arcadeStageIdx === ARCADE_LADDER_LENGTH - 1;
-      stage = isBoss
-        ? getStageById('cathedral_retribution')
-        : STAGES[arcadeStageIdx % STAGES.length];
-      modeLabel = isBoss
-        ? 'FINAL STAGE · BOSS'
-        : `ARCADE STAGE ${arcadeStageIdx + 1}/${ARCADE_LADDER_LENGTH}`;
-    } else if (gameMode === 'vs_cpu') {
-      modeLabel = 'VS CPU';
-    } else if (gameMode === 'vs_p2') {
-      modeLabel = '2P VERSUS';
+    if (mode === 'training') {
+      // Default Training Mode setup (Jinrai vs Kazuma Dummy in Hon-Maru Sanctuary)
+      player = ROSTER[0];
+      playerCostume = 0;
+      opp = ROSTER[1];
+      oppCostume = 0;
+      stage = STAGES[1]; // Hon-Maru Sanctuary
+      modeLabel = 'TRAINING';
     } else {
-      modeLabel = 'DOJO PRACTICE';
+      // 1v1: Player's chosen Arena & Fighter vs Random CPU Fighter!
+      const rnd = pickRandomCpuOpponent(player.id);
+      opp = rnd.char;
+      oppCostume = rnd.costume;
+      cpuChar = opp;
+      cpuCostume = oppCostume;
+      modeLabel = '1V1 VS CPU';
     }
+
+    input.setP1SignatureNotation(player.specials[0]?.notation ?? 'f,f+2');
 
     if (scene) {
       scene.loadStage(stage);
-      scene.ensureFightersLoaded(p1Char, p1Costume, opp, oppCostume);
+      scene.ensureFightersLoaded(player, playerCostume, opp, oppCostume);
     }
 
     match = createMatch({
-      p1: p1Char,
+      p1: player,
       p2: opp,
-      p1Costume,
+      p1Costume: playerCostume,
       p2Costume: oppCostume,
       stage,
       roundsToWin: 2,
-      infiniteTime: gameMode === 'practice',
-      practiceMode: gameMode === 'practice',
+      infiniteTime: mode === 'training',
+      practiceMode: mode === 'training',
       dummyBehavior,
-      seed: ((Date.now() & 0xfffffff) ^ (arcadeStageIdx * 7919)) >>> 0,
+      seed: (Date.now() & 0xfffffff) >>> 0,
     });
 
     hud.bindMatchHeader(match, modeLabel);
-    refreshMoveList(p1Char.id);
+    refreshMoveList(player.id);
     showScreen('match');
     sound.playUiTick(true);
     sound.startStageBgm(stage.bgmStyle);
-    if (gameMode === 'arcade' && arcadeStageIdx === 0) {
-      sound.announce('Get ready for the next battle!');
-    }
   }
 
-  // ==================== 1-CLICK QUICK PLAY & MENU WIRING ====================
-  onTap(document.getElementById('btn-quick-play'), () => {
-    gameMode = 'arcade';
-    p1Char = ROSTER[0]; // Jinrai Kazama
-    arcadeStageIdx = 0;
-    arcadeOpponents = buildArcadeLadder(p1Char);
-    arcadeOpponents[0] = ROSTER[1]; // Rival battle: Kazuma Mishima!
-    selectedStage = STAGES[0]; // Moonlit Wilderness
-    startBattle();
+  // ==================== 1. HOME SCREEN WIRING (PLAY / SETTINGS / EXIT) ====================
+  onTap(document.getElementById('btn-home-play'), () => {
+    sound.playUiTick(true);
+    showScreen('play');
   });
 
-  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-    onTap(btn, () => {
-      gameMode = btn.dataset.mode as GameMode;
-      pickingSlot = 1;
-      const modeNames: Record<GameMode, string> = {
-        arcade: 'ARCADE CHAMPIONSHIP (8 STAGES)',
-        vs_cpu: 'VERSUS CPU BATTLE',
-        vs_p2: 'LOCAL 2-PLAYER VERSUS',
-        practice: 'DOJO PRACTICE LAB',
-      };
-      document.getElementById('select-mode-label')!.textContent = modeNames[gameMode];
-      document.getElementById('p2-slot-title')!.textContent =
-        gameMode === 'vs_p2' ? 'PLAYER 2' : gameMode === 'practice' ? 'TRAINING DUMMY' : 'OPPONENT';
-      document.getElementById('difficulty-group')!.classList.toggle('hidden', gameMode === 'vs_p2');
-
-      if (gameMode === 'arcade') {
-        arcadeStageIdx = 0;
-        arcadeOpponents = buildArcadeLadder(p1Char);
-        p2Char = arcadeOpponents[0];
-      }
-      sound.playUiTick(true);
-      renderSelectUi();
-      showScreen('select');
-    });
-  });
-
-  onTap(document.getElementById('btn-select-back'), () => {
+  onTap(document.getElementById('btn-home-settings'), () => {
     sound.playUiTick();
-    sound.stopBgm();
-    showScreen('title');
+    showScreen('settings');
   });
 
-  onTap(document.getElementById('btn-pick-slot-p1'), () => {
-    pickingSlot = 1;
-    renderSelectUi();
+  onTap(document.getElementById('btn-home-exit'), () => {
+    sound.playUiTick();
+    modalExit.classList.remove('hidden');
   });
-  onTap(document.getElementById('btn-pick-slot-p2'), () => {
-    pickingSlot = 2;
-    renderSelectUi();
+
+  onTap(document.getElementById('btn-exit-cancel'), () => {
+    sound.playUiTick();
+    modalExit.classList.add('hidden');
+  });
+
+  onTap(document.getElementById('btn-exit-confirm'), () => {
+    sound.stopBgm();
+    modalExit.classList.add('hidden');
+    try {
+      window.close();
+    } catch {
+      // Standard browser tabs disallow window.close(); enter clean attract standby
+    }
+    showScreen('standby');
+  });
+
+  onTap(screens.standby, () => {
+    sound.playUiTick(true);
+    showScreen('home');
+  });
+
+  // ==================== 2. PLAY SUB-MENU (1V1 / MULTIPLAYER [GREYED] / TRAINING) ====================
+  onTap(document.getElementById('btn-play-back'), () => {
+    sound.playUiTick();
+    showScreen('home');
+  });
+
+  onTap(document.getElementById('btn-mode-1v1'), () => {
+    sound.playUiTick(true);
+    renderArenaSelectUi();
+    showScreen('arena');
+  });
+
+  onTap(document.getElementById('btn-mode-training'), () => {
+    startMatch('training');
+  });
+
+  // ==================== 3. ARENA SELECT (STEP 1 OF 1V1) ====================
+  onTap(document.getElementById('btn-arena-back'), () => {
+    sound.playUiTick();
+    showScreen('play');
+  });
+
+  onTap(document.getElementById('btn-arena-confirm'), () => {
+    sound.playUiTick(true);
+    renderFighterSelectUi();
+    showScreen('fighter');
+  });
+
+  // ==================== 4. FIGHTER SELECT (STEP 2 OF 1V1 + 3D PREVIEW) ====================
+  onTap(document.getElementById('btn-fighter-back'), () => {
+    sound.playUiTick();
+    renderArenaSelectUi();
+    showScreen('arena');
   });
 
   onTap(document.getElementById('btn-p1-costume'), () => {
     p1Costume = p1Costume === 0 ? 1 : 0;
     sound.playUiTick();
-    renderSelectUi();
+    renderFighterSelectUi();
   });
-  onTap(document.getElementById('btn-p2-costume'), () => {
-    p2Costume = p2Costume === 0 ? 1 : 0;
+
+  onTap(document.getElementById('btn-start-1v1'), () => {
+    startMatch('1v1');
+  });
+
+  // ==================== 5. SETTINGS SCREEN WIRING ====================
+  onTap(document.getElementById('btn-settings-back'), () => {
     sound.playUiTick();
-    renderSelectUi();
+    showScreen('home');
   });
 
-  onTap(document.getElementById('btn-random-select'), () => {
-    const r = ROSTER[Math.floor(Math.random() * ROSTER.length)];
-    if (pickingSlot === 1) p1Char = r;
-    else p2Char = r;
-    sound.playUiTick();
-    renderSelectUi();
-  });
-
-  const diffSelect = document.getElementById('select-difficulty') as HTMLSelectElement;
-  diffSelect.addEventListener('change', () => {
-    difficulty = Number(diffSelect.value) as AiDifficulty;
-  });
-
-  onTap(document.getElementById('btn-start-battle'), () => {
-    if (gameMode === 'arcade') {
-      arcadeStageIdx = 0;
-      arcadeOpponents = buildArcadeLadder(p1Char);
-    }
-    startBattle();
-  });
-
-  // Title Footer Buttons
-  onTap(document.getElementById('btn-open-controls'), () => {
-    openPauseModal('controls', false);
-  });
-
-  const btnQuality = document.getElementById('btn-toggle-quality')!;
-  btnQuality.textContent = `✨ Graphics: ${initialQuality.toUpperCase()}`;
-  onTap(btnQuality, () => {
-    if (!scene) return;
-    const order: QualityPreset[] = ['high', 'ultra', 'mobile'];
-    const next = order[(order.indexOf(scene.quality) + 1) % order.length];
-    const activeCanvas = scene.canvas;
-    scene.dispose();
-    void FightSceneEngine.create(activeCanvas, next).then((nextScene) => {
-      scene = nextScene;
-      bindCanvasInteractions(scene.canvas);
-      btnQuality.textContent = `✨ Graphics: ${next.toUpperCase()}`;
-      updateEnginePill();
+  document.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((btn) => {
+    onTap(btn, () => {
+      const targetQ = btn.dataset.quality as QualityPreset;
+      if (!scene || scene.quality === targetQ) return;
+      sound.playUiTick();
+      const activeCanvas = scene.canvas;
+      scene.dispose();
+      void FightSceneEngine.create(activeCanvas, targetQ).then((nextScene) => {
+        scene = nextScene;
+        bindCanvasInteractions(scene.canvas);
+        syncSettingsQualityUi(scene.quality);
+        updateEnginePill();
+      });
     });
   });
 
-  const btnMute = document.getElementById('btn-title-mute')!;
-  onTap(btnMute, () => {
-    sound.setMuted(!sound.muted);
-    btnMute.textContent = sound.muted ? '🔇 Audio: MUTED' : '🔊 Audio: ON';
+  const btnAudioOn = document.getElementById('btn-audio-on')!;
+  const btnAudioOff = document.getElementById('btn-audio-off')!;
+  onTap(btnAudioOn, () => {
+    sound.setMuted(false);
+    btnAudioOn.classList.add('active');
+    btnAudioOff.classList.remove('active');
+    sound.playUiTick();
+  });
+  onTap(btnAudioOff, () => {
+    sound.setMuted(true);
+    btnAudioOff.classList.add('active');
+    btnAudioOn.classList.remove('active');
   });
 
-  // HUD Quick Tool Buttons
+  document.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((btn) => {
+    onTap(btn, () => {
+      difficulty = Number(btn.dataset.diff) as AiDifficulty;
+      document.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+      });
+      sound.playUiTick();
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-touchmode]').forEach((btn) => {
+    onTap(btn, () => {
+      touchMode = btn.dataset.touchmode as TouchSettingMode;
+      document.querySelectorAll<HTMLButtonElement>('[data-touchmode]').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+      });
+      sound.playUiTick();
+      syncHudControlOverlays();
+    });
+  });
+
+  onTap(document.getElementById('btn-settings-commands'), () => {
+    openPauseModal('controls', false);
+  });
+
+  // ==================== IN-MATCH HUD, PAUSE & POST-MATCH ====================
   onTap(document.getElementById('btn-hud-moves'), () => {
     openPauseModal('moves', true);
   });
   onTap(document.getElementById('btn-hud-pause'), () => {
-    openPauseModal('controls', true);
-  });
-  onTap(document.getElementById('btn-hud-touch'), () => {
-    const currentlyShown = !mobileTouchLayer.classList.contains('hidden');
-    input.touchOverlayForced = !currentlyShown;
-    syncMobileTouchVisibility();
-    focusStage();
+    openPauseModal('moves', true);
   });
   onTap(document.getElementById('btn-hud-hitboxes'), () => {
     if (scene) scene.showHitboxes = !scene.showHitboxes;
     focusStage();
   });
 
-  // Practice Panel Controls
   const dummySelect = document.getElementById('select-dummy') as HTMLSelectElement;
   dummySelect.addEventListener('change', () => {
     dummyBehavior = dummySelect.value as DummyBehavior;
@@ -522,7 +539,6 @@ function bootGame(): void {
     focusStage();
   });
 
-  // Pause / Move List Modal
   const tabBtnMoves = document.getElementById('tab-btn-moves')!;
   const tabBtnControls = document.getElementById('tab-btn-controls')!;
   const tabMoves = document.getElementById('tab-content-moves')!;
@@ -530,8 +546,8 @@ function bootGame(): void {
   const pauseFooter = document.getElementById('pause-match-actions')!;
 
   function switchModalTab(tab: 'moves' | 'controls'): void {
-    tabBtnMoves.classList.toggle('selected', tab === 'moves');
-    tabBtnControls.classList.toggle('selected', tab === 'controls');
+    tabBtnMoves.classList.toggle('active', tab === 'moves');
+    tabBtnControls.classList.toggle('active', tab === 'controls');
     tabMoves.classList.toggle('hidden', tab !== 'moves');
     tabControls.classList.toggle('hidden', tab !== 'controls');
   }
@@ -540,72 +556,63 @@ function bootGame(): void {
 
   function openPauseModal(tab: 'moves' | 'controls', inMatch: boolean): void {
     paused = inMatch;
+    document.getElementById('pause-modal-title')!.textContent = inMatch ? 'PAUSED' : 'GUIDE';
+    document.getElementById('btn-close-modal')!.textContent = inMatch ? 'RESUME' : 'CLOSE';
     pauseFooter.classList.toggle('hidden', !inMatch);
-    refreshMoveList(p1Char.id);
+    refreshMoveList(match ? match.fighters[0].char.id : p1Char.id);
     switchModalTab(tab);
     modalPause.classList.remove('hidden');
-    syncMobileTouchVisibility();
+    syncHudControlOverlays();
   }
 
   function closePauseModal(): void {
     paused = false;
     modalPause.classList.add('hidden');
-    syncMobileTouchVisibility();
+    syncHudControlOverlays();
     if (currentScreen === 'match') focusStage();
   }
   onTap(document.getElementById('btn-close-modal'), closePauseModal);
+
   onTap(document.getElementById('btn-pause-rematch'), () => {
     closePauseModal();
-    startBattle();
+    startMatch(activeMode);
   });
   onTap(document.getElementById('btn-pause-charselect'), () => {
     closePauseModal();
     sound.stopBgm();
-    renderSelectUi();
-    showScreen('select');
+    renderFighterSelectUi();
+    showScreen('fighter');
   });
   onTap(document.getElementById('btn-pause-quit'), () => {
     closePauseModal();
     sound.stopBgm();
-    showScreen('title');
+    showScreen('home');
   });
 
-  // Post-Match Modal Actions
-  const btnPostNext = document.getElementById('btn-post-next')!;
-  onTap(btnPostNext, () => {
+  // Post-Match Actions
+  onTap(document.getElementById('btn-post-rematch'), () => {
     modalPost.classList.add('hidden');
     postMatchShown = false;
-    if (gameMode === 'arcade') {
-      if (match?.roundWinner === 0) {
-        if (arcadeStageIdx + 1 < ARCADE_LADDER_LENGTH) {
-          arcadeStageIdx += 1;
-          startBattle();
-        } else {
-          sound.stopBgm();
-          showScreen('title');
-        }
-      } else {
-        startBattle();
-      }
-    } else {
-      startBattle();
-    }
+    startMatch(activeMode);
   });
-  onTap(document.getElementById('btn-post-select'), () => {
+  onTap(document.getElementById('btn-post-fighter'), () => {
     sound.stopBgm();
-    renderSelectUi();
-    showScreen('select');
+    renderFighterSelectUi();
+    showScreen('fighter');
   });
-  onTap(document.getElementById('btn-post-title'), () => {
+  onTap(document.getElementById('btn-post-home'), () => {
     sound.stopBgm();
-    showScreen('title');
+    showScreen('home');
   });
 
-  // Global Hotkeys (Escape = Pause, M = Move List, B = 3D Hitbox Debug)
   window.addEventListener('keydown', (e) => {
+    if (currentScreen === 'standby') {
+      showScreen('home');
+      return;
+    }
     if (currentScreen !== 'match') return;
     if (e.code === 'Escape' || e.code === 'KeyP') {
-      if (modalPause.classList.contains('hidden')) openPauseModal('controls', true);
+      if (modalPause.classList.contains('hidden')) openPauseModal('moves', true);
       else closePauseModal();
     } else if (e.code === 'KeyM' && modalPause.classList.contains('hidden')) {
       openPauseModal('moves', true);
@@ -617,55 +624,23 @@ function bootGame(): void {
   function checkMatchCompletion(state: MatchState): void {
     if (state.phase !== 'match_over' || postMatchShown || state.phaseFrame < 95) return;
     postMatchShown = true;
-    syncMobileTouchVisibility();
+    syncHudControlOverlays();
 
     const p1Won = state.wins[0] > state.wins[1];
-    const postKicker = document.getElementById('post-kicker')!;
-    const postTitle = document.getElementById('post-title')!;
-    const postSub = document.getElementById('post-subtitle')!;
-
-    if (gameMode === 'arcade') {
-      if (p1Won) {
-        if (arcadeStageIdx + 1 >= ARCADE_LADDER_LENGTH) {
-          postKicker.textContent = 'CHAMPION OF THE IRON FIST TOURNAMENT V!';
-          postTitle.textContent = `${p1Char.name} IS UNDEFEATED!`;
-          postSub.textContent =
-            'Jinpachi Overlord has fallen in the Cathedral of Retribution. You claim the King of Iron Fist V crown!';
-          btnPostNext.textContent = '🏆 RETURN IN GLORY';
-          sound.announce('Congratulations! You are the King of Iron Fist Champion!');
-        } else {
-          const nextOpp = arcadeOpponents[arcadeStageIdx + 1];
-          const isBossNext = arcadeStageIdx + 1 === ARCADE_LADDER_LENGTH - 1;
-          postKicker.textContent = `STAGE ${arcadeStageIdx + 1} CLEARED`;
-          postTitle.textContent = `${p1Char.name} ADVANCES!`;
-          postSub.textContent = isBossNext
-            ? `FINAL STAGE WARNING: ${nextOpp.name} awaits in the Cathedral of Retribution!`
-            : `Next Challenger (Stage ${arcadeStageIdx + 2}/${ARCADE_LADDER_LENGTH}): ${nextOpp.name} — ${nextOpp.martialArt}`;
-          btnPostNext.textContent = isBossNext ? '⚔️ CHALLENGE JINPACHI →' : 'NEXT CHALLENGER →';
-        }
-      } else {
-        postKicker.textContent = 'DEFEATED';
-        postTitle.textContent = 'CONTINUE?';
-        postSub.textContent = `${state.fighters[1].char.name} took the match. Rise again and reclaim the tournament!`;
-        btnPostNext.textContent = '🔥 REMATCH STAGE →';
-      }
-    } else {
-      const winnerName =
-        state.wins[0] === state.wins[1]
-          ? 'DRAW MATCH'
-          : p1Won
-            ? `${state.fighters[0].char.name} WINS!`
-            : `${state.fighters[1].char.name} WINS!`;
-      postKicker.textContent = `FINAL SCORE: ${state.wins[0]} - ${state.wins[1]}`;
-      postTitle.textContent = winnerName;
-      postSub.textContent = 'Ready for the next battle?';
-      btnPostNext.textContent = '⚔️ REMATCH →';
-    }
+    document.getElementById('post-kicker')!.textContent = p1Won ? 'VICTORY' : 'DEFEAT';
+    document.getElementById('post-title')!.textContent =
+      state.wins[0] === state.wins[1]
+        ? 'DRAW GAME'
+        : p1Won
+          ? `${state.fighters[0].char.name} WINS`
+          : `${state.fighters[1].char.name} WINS`;
+    document.getElementById('post-subtitle')!.textContent =
+      `ROUND SCORE  ${state.wins[0]} - ${state.wins[1]}`;
 
     modalPost.classList.remove('hidden');
   }
 
-  // ==================== DRIFTENGINE FIXED-STEP 60HZ GAME LOOP ====================
+  // ==================== FIXED-STEP 60HZ GAME LOOP ====================
   startLoop({
     simulate(dt) {
       if (currentScreen !== 'match' || match === null) {
@@ -674,19 +649,11 @@ function bootGame(): void {
       }
       if (paused) return;
 
-      const p1In = input.sampleP1(gameMode === 'vs_p2', match.fighters[0].facing);
-      let p2In;
-      if (gameMode === 'vs_p2') {
-        p2In = input.sampleP2();
-      } else if (gameMode === 'practice') {
-        p2In = cpu.samplePracticeDummy(match, 1, dummyBehavior, difficulty);
-      } else {
-        const effectiveDiff =
-          gameMode === 'arcade'
-            ? (Math.min(4, Math.max(difficulty, 1 + Math.floor(arcadeStageIdx / 2))) as AiDifficulty)
-            : difficulty;
-        p2In = cpu.sampleCpu(match, 1, effectiveDiff);
-      }
+      const p1In = input.sampleP1(false, match.fighters[0].facing);
+      const p2In =
+        activeMode === 'training'
+          ? cpu.samplePracticeDummy(match, 1, dummyBehavior, difficulty)
+          : cpu.sampleCpu(match, 1, difficulty);
 
       stepMatch(match, p1In, p2In);
 
@@ -705,7 +672,20 @@ function bootGame(): void {
     render(alpha) {
       if (!scene) return;
       if (currentScreen !== 'match' || match === null) {
-        scene.renderMenuShowcase(p1Char, p1Costume, p2Char, p2Costume, selectedStage);
+        const showcaseMode: MenuShowcaseMode =
+          currentScreen === 'arena'
+            ? 'arena_preview'
+            : currentScreen === 'fighter'
+              ? 'fighter_preview'
+              : 'home';
+        scene.renderMenuShowcase(
+          p1Char,
+          p1Costume,
+          cpuChar,
+          cpuCostume,
+          selectedStage,
+          showcaseMode,
+        );
         return;
       }
       scene.renderMatch(match, paused ? 1 : alpha);

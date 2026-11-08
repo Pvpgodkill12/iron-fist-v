@@ -6,14 +6,16 @@
   "type": "module",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
+    "build:stages": "node scripts/build-stages-glb.mjs",
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "build": "npm run build:wasm && tsc --noEmit && vite build && node scripts/build-standalone.mjs",
+    "build": "npm run build:wasm && npm run build:stages && tsc --noEmit && vite build && node scripts/build-standalone.mjs",
     "preview": "vite preview --host 0.0.0.0 --port 5173",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@driftengine/animation": "4.14.3",
+    "@driftengine/assets": "^4.14.3",
     "@driftengine/audio": "4.14.3",
     "@driftengine/core": "4.14.3",
     "gl-matrix": "^3.4.3"
