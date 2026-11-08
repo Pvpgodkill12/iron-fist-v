@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#070709" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <title>IRON FIST V</title>
+    <script type="module" crossorigin src="./assets/app-DyUSrX8C.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app-VbDhNQMz.css">
+  </head>
+  <body>
+    <div id="app-root">
+      <!-- Live 3D Arena & Skinned Fighter Canvas -->
+      <canvas id="stage" tabindex="0" aria-label="3D Fighting Arena"></canvas>
+
+      <!-- ==================== 1. HOME SCREEN (PLAY / SETTINGS / EXIT) ==================== -->
+      <section id="screen-home" class="ui-screen home-layout">
+        <div class="home-panel">
+          <div class="brand-block">
+            <div class="brand-kicker">KING OF IRON FIST</div>
+            <h1 class="brand-logo">IRON FIST <span>V</span></h1>
+            <div class="brand-slash"></div>
+            <div id="home-online-pill" class="online-status-pill">ONLINE: SCANNING...</div>
+          </div>
+
+          <nav class="blade-menu" aria-label="Main Menu">
+            <button id="btn-home-play" class="blade-btn primary">
+              <span class="blade-label">PLAY</span>
+            </button>
+            <button id="btn-home-settings" class="blade-btn">
+              <span class="blade-label">SETTINGS</span>
+            </button>
+            <button id="btn-home-exit" class="blade-btn">
+              <span class="blade-label">EXIT</span>
+            </button>
+          </nav>
+        </div>
+      </section>
+
+      <!-- ==================== 2. PLAY SUB-MENU (1V1 / MULTIPLAYER / TRAINING) ==================== -->
+      <section id="screen-play" class="ui-screen home-layout hidden">
+        <div class="home-panel">
+          <div class="subscreen-header">
+            <button id="btn-play-back" class="nav-back-btn">BACK</button>
+            <div class="subscreen-title">SELECT MODE</div>
+          </div>
+
+          <nav class="blade-menu" aria-label="Play Modes">
+            <button id="btn-mode-1v1" class="blade-btn primary">
+              <span class="blade-label">PLAY 1V1</span>
+              <span class="blade-sub">PLAYER VS CPU</span>
+            </button>
+            <button id="btn-mode-multi" class="blade-btn is-disabled" disabled aria-disabled="true">
+              <span class="blade-label">MULTIPLAYER</span>
+              <span id="multi-lock-tag" class="blade-lock-tag">1 ACTIVE · WAITING</span>
+            </button>
+            <button id="btn-mode-training" class="blade-btn">
+              <span class="blade-label">TRAINING MODE</span>
+              <span class="blade-sub">PRACTICE DOJO</span>
+            </button>
+          </nav>
+
+          <div id="multi-seeking-bar" class="multi-seeking-bar hidden">
+            <span id="multi-seeking-text">CHALLENGE SENT — WAITING FOR PLAYER...</span>
+            <button id="btn-multi-cancel-seek" class="small-blade-btn">CANCEL</button>
+          </div>
+
+          <div class="multi-room-row">
+            <span class="room-label">LOBBY CHANNEL:</span>
+            <input
+              id="input-room-code"
+              class="room-code-input"
+              type="text"
+              maxlength="8"
+              value="PUBLIC"
+              aria-label="Lobby Channel Code"
+            />
+            <button id="btn-room-apply" class="small-blade-btn">JOIN</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 2B. ONLINE STEP 1: RANDOM 2-MAP VOTE ==================== -->
+      <section id="screen-mp-vote" class="ui-screen arena-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-mp-vote-leave" class="nav-back-btn">LEAVE</button>
+          <div class="top-nav-heading">
+            <span id="mp-vote-subtag" class="step-tag">ONLINE VERSUS // BOTH PLAYERS MUST VOTE</span>
+            <h2>VOTE ARENA (2 RANDOM OPTIONS)</h2>
+          </div>
+          <div id="mp-vote-timer" class="vote-timer-pill">15s</div>
+        </header>
+
+        <div id="mp-vote-banner" class="mp-vote-banner">CLICK ONE OF THE 2 RANDOM ARENAS TO CAST YOUR VOTE</div>
+
+        <div class="mp-vote-dock">
+          <div id="mp-vote-cards" class="mp-vote-grid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 2C. ONLINE STEP 2: SYNCED CHARACTER SELECT ==================== -->
+      <section id="screen-mp-fighter" class="ui-screen fighter-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-mp-fighter-leave" class="nav-back-btn">LEAVE</button>
+          <div class="top-nav-heading">
+            <span id="mp-fighter-arena-tag" class="step-tag">ARENA: DRAGON'S NEST SHRINE</span>
+            <h2>ONLINE FIGHTER SELECT</h2>
+          </div>
+          <button id="btn-mp-lock-fighter" class="action-cta-btn">LOCK IN</button>
+        </header>
+
+        <!-- Player 1 Bio Plate (Left) -->
+        <aside class="fighter-bio-plate mp-p1-plate">
+          <div class="bio-header-row">
+            <span id="mp-p1-role" class="bio-slot-tag">PLAYER 1</span>
+            <button id="btn-mp-costume" class="small-blade-btn">OUTFIT 1</button>
+          </div>
+          <h3 id="mp-p1-name" class="bio-name">JINRAI KAZAMA</h3>
+          <div id="mp-p1-style" class="bio-style">Traditional Karate // Japan</div>
+          <div id="mp-p1-ready" class="mp-ready-badge">SELECTING...</div>
+        </aside>
+
+        <!-- Player 2 Bio Plate (Right) -->
+        <aside class="fighter-bio-plate mp-p2-plate">
+          <div class="bio-header-row">
+            <span id="mp-p2-role" class="bio-slot-tag p2-tag">PLAYER 2</span>
+            <span id="mp-ping-badge" class="mp-ping-chip">P2P READY</span>
+          </div>
+          <h3 id="mp-p2-name" class="bio-name">KAZUMA MISHIMA</h3>
+          <div id="mp-p2-style" class="bio-style">Mishima Karate // Japan</div>
+          <div id="mp-p2-ready" class="mp-ready-badge">SELECTING...</div>
+        </aside>
+
+        <!-- Synced 12-Fighter Roster Grid -->
+        <div class="roster-dock">
+          <div id="mp-roster-grid" class="roster-grid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 3. PLAY 1V1 -> STEP 1: SELECT ARENA (MAP) ==================== -->
+      <section id="screen-arena" class="ui-screen arena-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-arena-back" class="nav-back-btn">BACK</button>
+          <div class="top-nav-heading">
+            <span class="step-tag">STEP 01 // 1V1</span>
+            <h2>SELECT ARENA</h2>
+          </div>
+          <div class="top-nav-spacer"></div>
+        </header>
+
+        <div class="arena-bottom-dock">
+          <div class="arena-info-bar">
+            <div>
+              <div id="arena-preview-title" class="arena-title">MOONLIT WILDERNESS</div>
+              <div id="arena-preview-sub" class="arena-sub">Ruined Gothic Sanctuary</div>
+            </div>
+            <button id="btn-arena-confirm" class="action-cta-btn">SELECT FIGHTER</button>
+          </div>
+
+          <div id="arena-grid" class="arena-strip"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 4. PLAY 1V1 -> STEP 2: SELECT FIGHTER (3D PREVIEW) ==================== -->
+      <section id="screen-fighter" class="ui-screen fighter-select-layout hidden">
+        <header class="top-nav-bar">
+          <button id="btn-fighter-back" class="nav-back-btn">BACK</button>
+          <div class="top-nav-heading">
+            <span id="fighter-arena-tag" class="step-tag">ARENA: MOONLIT WILDERNESS</span>
+            <h2>SELECT FIGHTER</h2>
+          </div>
+          <button id="btn-start-1v1" class="action-cta-btn">FIGHT</button>
+        </header>
+
+        <!-- Live 3D Character Preview Bio Plate -->
+        <aside class="fighter-bio-plate">
+          <div class="bio-header-row">
+            <span class="bio-slot-tag">PLAYER 1</span>
+            <button id="btn-p1-costume" class="small-blade-btn">OUTFIT 1</button>
+          </div>
+          <h3 id="sel-p1-name" class="bio-name">JINRAI KAZAMA</h3>
+          <div id="sel-p1-style" class="bio-style">Traditional Karate // Japan</div>
+          <div id="sel-p1-stats" class="bio-stats">HP 180 // Versatile All-Rounder</div>
+          <div class="cpu-random-banner">VS CPU // RANDOM OPPONENT</div>
+        </aside>
+
+        <!-- 12-Fighter Roster Grid -->
+        <div class="roster-dock">
+          <div id="roster-grid" class="roster-grid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 5. SETTINGS SCREEN ==================== -->
+      <section id="screen-settings" class="ui-screen center-panel-layout hidden">
+        <div class="settings-box">
+          <header class="top-nav-bar compact">
+            <button id="btn-settings-back" class="nav-back-btn">BACK</button>
+            <div class="top-nav-heading">
+              <span class="step-tag">CONFIGURATION</span>
+              <h2>SETTINGS</h2>
+            </div>
+            <div class="top-nav-spacer"></div>
+          </header>
+
+          <div class="settings-list">
+            <div class="setting-row">
+              <div class="setting-label">GRAPHICS QUALITY</div>
+              <div class="seg-group">
+                <button class="seg-btn" data-quality="mobile">LOW</button>
+                <button class="seg-btn active" data-quality="high">HIGH</button>
+                <button class="seg-btn" data-quality="ultra">ULTRA</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">MASTER AUDIO</div>
+              <div class="seg-group">
+                <button id="btn-audio-on" class="seg-btn active">ON</button>
+                <button id="btn-audio-off" class="seg-btn">OFF</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">CPU DIFFICULTY</div>
+              <div class="seg-group">
+                <button class="seg-btn" data-diff="1">EASY</button>
+                <button class="seg-btn active" data-diff="2">NORMAL</button>
+                <button class="seg-btn" data-diff="3">HARD</button>
+                <button class="seg-btn" data-diff="4">MASTER</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">TOUCH CONTROLS</div>
+              <div class="seg-group">
+                <button class="seg-btn active" data-touchmode="auto">AUTO</button>
+                <button class="seg-btn" data-touchmode="on">ON</button>
+                <button class="seg-btn" data-touchmode="off">OFF</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-label">CONTROLS &amp; COMMANDS</div>
+              <button id="btn-settings-commands" class="small-blade-btn">OPEN GUIDE</button>
+            </div>
+          </div>
+
+          <div id="engine-pill" class="settings-sys-line">SYSTEM READY</div>
+        </div>
+      </section>
+
+      <!-- ==================== EXIT STANDBY / ATTRACT SCREEN ==================== -->
+      <section id="screen-standby" class="ui-screen standby-layout hidden">
+        <div class="standby-center">
+          <h1 class="brand-logo">IRON FIST <span>V</span></h1>
+          <div class="standby-prompt">TAP OR PRESS ANY KEY TO START</div>
+        </div>
+      </section>
+
+      <!-- ==================== IN-MATCH TEKKEN HUD ==================== -->
+      <section id="screen-hud" class="hud-layer hidden">
+        <div class="hud-top">
+          <!-- Player 1 Health -->
+          <div class="fighter-hud p1-hud">
+            <div class="hud-meta-row">
+              <div>
+                <div id="hud-p1-name" class="hud-name">JINRAI KAZAMA</div>
+                <div id="hud-p1-style" class="hud-sub">Traditional Karate</div>
+              </div>
+              <div id="hud-p1-wins" class="win-gems"></div>
+            </div>
+            <div id="hud-p1-bar" class="hp-bar-frame p1-frame">
+              <div id="hud-p1-red" class="hp-red-bar" style="width: 100%"></div>
+              <div id="hud-p1-fill" class="hp-fill-bar" style="width: 100%"></div>
+            </div>
+            <div class="hud-feedback-row">
+              <div id="hud-p1-combo" class="combo-badge"></div>
+              <div id="hud-p1-callout" class="side-callout"></div>
+            </div>
+          </div>
+
+          <!-- Center Clock -->
+          <div class="hud-clock-box">
+            <div id="hud-timer" class="hud-timer">60</div>
+            <div id="hud-stage-badge" class="hud-stage-tag">1V1 // MOONLIT WILDERNESS</div>
+            <div id="hud-net-pill" class="hud-net-pill hidden">P2P UDP · 16ms · RB 0F</div>
+          </div>
+
+          <!-- Player 2 Health -->
+          <div class="fighter-hud p2-hud">
+            <div class="hud-meta-row reverse">
+              <div>
+                <div id="hud-p2-name" class="hud-name">KAZUMA MISHIMA</div>
+                <div id="hud-p2-style" class="hud-sub">Mishima Karate</div>
+              </div>
+              <div id="hud-p2-wins" class="win-gems"></div>
+            </div>
+            <div id="hud-p2-bar" class="hp-bar-frame p2-frame">
+              <div id="hud-p2-red" class="hp-red-bar" style="width: 100%"></div>
+              <div id="hud-p2-fill" class="hp-fill-bar" style="width: 100%"></div>
+            </div>
+            <div class="hud-feedback-row reverse">
+              <div id="hud-p2-combo" class="combo-badge"></div>
+              <div id="hud-p2-callout" class="side-callout"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Minimal In-Match Controls -->
+        <div class="hud-quick-tools">
+          <button id="btn-hud-moves" class="hud-tool-btn">MOVES</button>
+          <button id="btn-hud-hitboxes" class="hud-tool-btn">BOXES</button>
+          <button id="btn-hud-pause" class="hud-tool-btn">PAUSE</button>
+        </div>
+
+        <!-- Center Round / KO Banner -->
+        <div id="hud-center-banner" class="center-banner">FIGHT</div>
+
+        <!-- Training Mode Inspector -->
+        <div id="practice-panel" class="practice-panel hidden">
+          <div class="practice-controls-row">
+            <span>DUMMY</span>
+            <select id="select-dummy">
+              <option value="stand">STAND</option>
+              <option value="guard_all">GUARD ALL</option>
+              <option value="crouch">CROUCH</option>
+              <option value="sidestep">SIDESTEP</option>
+              <option value="cpu_spar">SPARRING</option>
+            </select>
+            <button id="btn-practice-rage" class="small-blade-btn">RAGE</button>
+            <button id="btn-practice-reset" class="small-blade-btn">RESET</button>
+          </div>
+          <div id="practice-frame-data" class="practice-readout">STATE: IDLE</div>
+          <div id="practice-input-tape" class="input-tape"></div>
+        </div>
+
+        <!-- Desktop Input Strip -->
+        <div id="desktop-control-bar" class="desktop-control-bar">
+          <span class="dcb-hint">WASD / ARROWS  //  SIDESTEP: W / S</span>
+          <div class="dcb-buttons">
+            <button class="dcb-btn" data-touch-btn="lp">1 <span>LP</span></button>
+            <button class="dcb-btn" data-touch-btn="rp">2 <span>RP</span></button>
+            <button class="dcb-btn" data-touch-btn="lk">3 <span>LK</span></button>
+            <button class="dcb-btn" data-touch-btn="rk">4 <span>RK</span></button>
+            <button class="dcb-btn accent" data-touch-btn="special">Q <span>SP</span></button>
+            <button class="dcb-btn accent" data-touch-btn="launch">E <span>LN</span></button>
+            <button class="dcb-btn" data-touch-btn="1+3">F <span>THROW</span></button>
+            <button class="dcb-btn rage" data-touch-btn="1+2">SPACE <span>RAGE</span></button>
+          </div>
+        </div>
+
+        <!-- Mobile Arcade Touch Controls (Custom SVG Sanwa Fightstick + Limb Pushbuttons + Triggers) -->
+        <div id="mobile-touch-layer" class="mobile-touch-layer hidden">
+          <div id="touch-stick-zone" class="touch-stick-zone" data-dir-x="0" data-dir-z="0">
+            <div class="stick-ring">
+              <svg class="stick-gate-svg" viewBox="0 0 140 140" aria-hidden="true">
+                <defs>
+                  <radialGradient id="gateWellGrad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#050508" stop-opacity="0.92" />
+                    <stop offset="72%" stop-color="#14141d" stop-opacity="0.88" />
+                    <stop offset="100%" stop-color="#221016" stop-opacity="0.95" />
+                  </radialGradient>
+                </defs>
+                <!-- Brushed Arcade Bezel & Mounting Bolts -->
+                <circle cx="70" cy="70" r="67" fill="url(#gateWellGrad)" stroke="rgba(255,40,60,0.55)" stroke-width="2" />
+                <circle cx="70" cy="70" r="61" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1" stroke-dasharray="6 4" />
+                <circle cx="24" cy="24" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="116" cy="24" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="24" cy="116" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <circle cx="116" cy="116" r="2.3" fill="rgba(255,255,255,0.28)" />
+                <!-- True 8-Way Octagonal Arcade Restrictor Gate -->
+                <polygon
+                  points="70,22 104,36 118,70 104,104 70,118 36,104 22,70 36,36"
+                  fill="rgba(6,6,10,0.65)"
+                  stroke="rgba(255,255,255,0.28)"
+                  stroke-width="1.8"
+                />
+                <!-- Center Dustwasher Ring -->
+                <circle cx="70" cy="70" r="19" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.16)" stroke-width="1.2" />
+                <!-- 4 Directional Arcade Chevrons -->
+                <path class="gate-chevron chev-up" d="M62 17 L70 9 L78 17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-down" d="M62 123 L70 131 L78 123" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-left" d="M17 62 L9 70 L17 78" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <path class="gate-chevron chev-right" d="M123 62 L131 70 L123 78" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <div id="touch-stick-knob" class="stick-knob">
+                <svg class="knob-svg" viewBox="0 0 60 60" aria-hidden="true">
+                  <defs>
+                    <radialGradient id="ballTopGrad" cx="34%" cy="30%" r="68%">
+                      <stop offset="0%" stop-color="#ff8a96" />
+                      <stop offset="28%" stop-color="#ff1e34" />
+                      <stop offset="76%" stop-color="#9e0818" />
+                      <stop offset="100%" stop-color="#45030a" />
+                    </radialGradient>
+                  </defs>
+                  <circle cx="30" cy="30" r="27" fill="url(#ballTopGrad)" stroke="rgba(255,255,255,0.82)" stroke-width="1.8" />
+                  <ellipse cx="22" cy="18" rx="9" ry="5" transform="rotate(-24 22 18)" fill="rgba(255,255,255,0.42)" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div id="touch-buttons-zone" class="touch-buttons-zone">
+            <div class="touch-macro-row">
+              <button class="touch-macro special-macro" data-touch-btn="special" aria-label="Special Attack">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M11.5 1.5 L4 11 H9.5 L8.5 18.5 L16 9 H10.5 Z" fill="currentColor" />
+                </svg>
+                <span>SP</span>
+              </button>
+              <button class="touch-macro launch-macro" data-touch-btn="launch" aria-label="Launcher">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 2 L16.5 9 H12.5 V18 H7.5 V9 H3.5 Z" fill="currentColor" />
+                </svg>
+                <span>LNCH</span>
+              </button>
+              <button class="touch-macro grab-macro" data-touch-btn="1+3" aria-label="Grab Throw">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M4 11 C4 6.5 7 4 10 4 C13 4 16 6.5 16 11 M6.5 15.5 L10 12 L13.5 15.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>GRAB</span>
+              </button>
+              <button class="touch-macro rage-macro" data-touch-btn="1+2" aria-label="Rage Art">
+                <svg class="macro-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 1.8 C12.8 5.5 16 8.2 16 12.2 C16 15.6 13.3 18.2 10 18.2 C6.7 18.2 4 15.6 4 12.2 C4 9.5 5.6 7.4 7.4 5.8 C7.2 7.8 8.4 9.1 9.6 9.5 C8.8 6.8 9.2 4.1 10 1.8 Z" fill="currentColor" />
+                </svg>
+                <span>RAGE</span>
+              </button>
+            </div>
+            <div class="tekken-diamond">
+              <button class="limb-btn lp-btn" data-touch-btn="lp" aria-label="Left Punch 1">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(12,13,20,0.92)" stroke="rgba(226,232,240,0.72)" stroke-width="2.4" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(28,32,44,0.88)" stroke="rgba(255,255,255,0.2)" stroke-width="1.2" />
+                  <!-- Martial-Arts Fist Icon -->
+                  <path d="M21 28 C21 24.5 23.5 23 26 23 H37 C39.8 23 42 25.2 42 28 V34 C42 38.2 38.5 41 34 41 H27 C23.5 41 21 38.4 21 35 Z" fill="rgba(255,255,255,0.16)" stroke="#f1f5f9" stroke-width="2" />
+                  <path d="M26 23 V29 M30.5 23 V29 M35 23 V29 M21 31 H36" stroke="#f1f5f9" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span class="limb-badge">1</span>
+                <small class="limb-tag">LP</small>
+              </button>
+              <button class="limb-btn rp-btn" data-touch-btn="rp" aria-label="Right Punch 2">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(22,8,12,0.94)" stroke="#ff2b3e" stroke-width="2.6" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(58,12,20,0.88)" stroke="rgba(255,140,152,0.32)" stroke-width="1.2" />
+                  <!-- Martial-Arts Heavy Fist Icon -->
+                  <path d="M21 28 C21 24.5 23.5 23 26 23 H37 C39.8 23 42 25.2 42 28 V34 C42 38.2 38.5 41 34 41 H27 C23.5 41 21 38.4 21 35 Z" fill="rgba(255,43,62,0.24)" stroke="#ffd6da" stroke-width="2" />
+                  <path d="M26 23 V29 M30.5 23 V29 M35 23 V29 M21 31 H36" stroke="#ffd6da" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span class="limb-badge">2</span>
+                <small class="limb-tag">RP</small>
+              </button>
+              <button class="limb-btn lk-btn" data-touch-btn="lk" aria-label="Left Kick 3">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(10,16,24,0.92)" stroke="#7dd3fc" stroke-width="2.4" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(18,34,50,0.88)" stroke="rgba(125,211,252,0.28)" stroke-width="1.2" />
+                  <!-- Dynamic Martial-Arts Kick Boot/Foot Icon -->
+                  <path d="M24 21 L31 21 L30 32 L43 35 C44.5 35.5 45 39 42.5 39.5 L23 39.5 C21 39.5 20.5 37 21.5 34.5 Z" fill="rgba(125,211,252,0.2)" stroke="#e0f2fe" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                <span class="limb-badge">3</span>
+                <small class="limb-tag">LK</small>
+              </button>
+              <button class="limb-btn rk-btn" data-touch-btn="rk" aria-label="Right Kick 4">
+                <svg class="limb-svg" viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="29" fill="rgba(26,10,10,0.94)" stroke="#fb7185" stroke-width="2.6" />
+                  <circle cx="32" cy="32" r="23.5" fill="rgba(68,16,22,0.88)" stroke="rgba(251,113,133,0.32)" stroke-width="1.2" />
+                  <!-- Dynamic Martial-Arts Heavy Kick Icon -->
+                  <path d="M24 21 L31 21 L30 32 L43 35 C44.5 35.5 45 39 42.5 39.5 L23 39.5 C21 39.5 20.5 37 21.5 34.5 Z" fill="rgba(251,113,133,0.24)" stroke="#ffe4e6" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                <span class="limb-badge">4</span>
+                <small class="limb-tag">RK</small>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== GLOBAL ONLINE CHALLENGE TOAST ==================== -->
+      <div id="online-challenge-toast" class="challenge-toast hidden" role="alert">
+        <div class="challenge-toast-info">
+          <div class="challenge-kicker">CHALLENGER APPROACHING // ONLINE P2P</div>
+          <div id="challenge-toast-desc" class="challenge-desc">Active player wants to fight!</div>
+        </div>
+        <div class="challenge-toast-actions">
+          <button id="btn-challenge-accept" class="action-cta-btn compact-cta">ACCEPT</button>
+          <button id="btn-challenge-decline" class="small-blade-btn">DECLINE</button>
+        </div>
+      </div>
+
+      <!-- ==================== EXIT CONFIRMATION MODAL ==================== -->
+      <section id="modal-exit" class="modal-backdrop hidden">
+        <div class="modal-box narrow-modal">
+          <div class="step-tag">SYSTEM</div>
+          <h2 class="modal-title">EXIT GAME?</h2>
+          <p class="modal-desc">Return to title standby or close application.</p>
+          <div class="modal-actions">
+            <button id="btn-exit-confirm" class="blade-btn primary">
+              <span class="blade-label">CONFIRM EXIT</span>
+            </button>
+            <button id="btn-exit-cancel" class="blade-btn">
+              <span class="blade-label">CANCEL</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== POST-MATCH MODAL ==================== -->
+      <section id="modal-postmatch" class="modal-backdrop hidden">
+        <div class="modal-box narrow-modal">
+          <div id="post-kicker" class="step-tag">RESULT</div>
+          <h2 id="post-title" class="modal-title">JINRAI KAZAMA WINS</h2>
+          <p id="post-subtitle" class="modal-desc">FINAL SCORE 2 - 0</p>
+          <div class="modal-actions">
+            <button id="btn-post-rematch" class="blade-btn primary">
+              <span class="blade-label">REMATCH</span>
+            </button>
+            <button id="btn-post-fighter" class="blade-btn">
+              <span class="blade-label">CHANGE FIGHTER</span>
+            </button>
+            <button id="btn-post-home" class="blade-btn">
+              <span class="blade-label">MAIN MENU</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAUSE / COMMAND LIST MODAL ==================== -->
+      <section id="modal-pause" class="modal-backdrop hidden">
+        <div class="modal-box wide-modal">
+          <div class="modal-header">
+            <h2 id="pause-modal-title" class="modal-title">PAUSED</h2>
+            <button id="btn-close-modal" class="nav-back-btn">RESUME</button>
+          </div>
+
+          <div class="modal-tabs">
+            <button id="tab-btn-moves" class="seg-btn active">COMMAND LIST</button>
+            <button id="tab-btn-controls" class="seg-btn">CONTROLS</button>
+          </div>
+
+          <div id="tab-content-moves" class="modal-scroll">
+            <div class="movelist-char-picker">
+              <label for="movelist-char-select">FIGHTER</label>
+              <select id="movelist-char-select"></select>
+            </div>
+            <div id="movelist-container"></div>
+          </div>
+
+          <div id="tab-content-controls" class="modal-scroll hidden">
+            <div class="controls-grid">
+              <div class="ctrl-card">
+                <h3>KEYBOARD</h3>
+                <ul>
+                  <li><b>MOVE / GUARD:</b> <code>W A S D</code> or <code>ARROWS</code></li>
+                  <li><b>3D SIDESTEP:</b> Tap <code>W</code> or <code>S</code></li>
+                  <li><b>LIMBS (1 2 3 4):</b> <code>1 2 3 4</code> / <code>Z X C V</code> / <code>U I J K</code></li>
+                  <li><b>SPECIAL / LAUNCH:</b> <code>Q</code> / <code>E</code></li>
+                  <li><b>THROW / RAGE ART:</b> <code>F</code> / <code>SPACE</code></li>
+                </ul>
+              </div>
+              <div class="ctrl-card">
+                <h3>MOBILE &amp; CONTROLLER</h3>
+                <ul>
+                  <li><b>LEFT STICK:</b> Hold back to guard, tap up/down to sidestep</li>
+                  <li><b>DIAMOND (1 2 3 4):</b> Left/Right Punch &amp; Left/Right Kick</li>
+                  <li><b>LAUNCH + STRINGS:</b> Tap <code>LAUNCH</code> then chain <code>1, 2, 4</code></li>
+                  <li><b>RAGE ART:</b> Below 25% HP tap <code>RAGE</code> for super finisher</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div id="pause-match-actions" class="modal-footer-actions">
+            <button id="btn-pause-rematch" class="small-blade-btn">RESTART</button>
+            <button id="btn-pause-charselect" class="small-blade-btn">SELECT FIGHTER</button>
+            <button id="btn-pause-quit" class="small-blade-btn danger">MAIN MENU</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "Iron Fist V: WebGPU Championship",
+  "short_name": "Iron Fist V",
+  "description": "Full 12-Character 3D Fighting Game built on DriftEngine WebGPU + WebAssembly for PC & Mobile",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#07080d",
+  "theme_color": "#d42027",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
