@@ -21,6 +21,8 @@ export class FightHudController {
   private readonly p2Red: HTMLElement;
   private readonly p1Name: HTMLElement;
   private readonly p2Name: HTMLElement;
+  private readonly p1Role: HTMLElement;
+  private readonly p2Role: HTMLElement;
   private readonly p1Style: HTMLElement;
   private readonly p2Style: HTMLElement;
   private readonly p1WinsEl: HTMLElement;
@@ -47,6 +49,8 @@ export class FightHudController {
   private lastP1Hp = -1;
   private lastP2Hp = -1;
   private lastWinsKey = '';
+  private lastP1ComboKey = '';
+  private lastP2ComboKey = '';
 
   constructor() {
     const q = (id: string) => {
@@ -60,6 +64,8 @@ export class FightHudController {
     this.p2Red = q('hud-p2-red');
     this.p1Name = q('hud-p1-name');
     this.p2Name = q('hud-p2-name');
+    this.p1Role = q('hud-p1-role');
+    this.p2Role = q('hud-p2-role');
     this.p1Style = q('hud-p1-style');
     this.p2Style = q('hud-p2-style');
     this.p1WinsEl = q('hud-p1-wins');
@@ -79,18 +85,36 @@ export class FightHudController {
     this.touchRageBtn = document.querySelector('[data-touch-btn="1+2"]');
   }
 
-  bindMatchHeader(state: MatchState, modeLabel: string): void {
+  bindMatchHeader(state: MatchState, modeLabel: string, localSlot?: 0 | 1): void {
     const [f0, f1] = state.fighters;
+    const isOnline = modeLabel.startsWith('ONLINE');
+    if (isOnline && localSlot !== undefined) {
+      this.p1Role.textContent = localSlot === 0 ? 'P1 // YOU' : 'P1 // OPPONENT';
+      this.p2Role.textContent = localSlot === 1 ? 'P2 // YOU' : 'P2 // OPPONENT';
+    } else {
+      this.p1Role.textContent = modeLabel === 'TRAINING' ? 'P1 // PRACTICE' : 'P1 // LOCAL FIGHTER';
+      this.p2Role.textContent = modeLabel === 'TRAINING' ? 'DUMMY // TRAINING' : 'CPU // OPPONENT';
+    }
     this.p1Name.textContent = f0.char.name;
     this.p2Name.textContent = f1.char.name;
     this.p1Style.textContent = f0.char.martialArt;
     this.p2Style.textContent = f1.char.martialArt;
     this.stageBadgeEl.textContent = `${modeLabel} // ${state.config.stage.name}`;
     this.practicePanel.classList.toggle('hidden', !state.config.practiceMode);
+    this.bannerEl.classList.remove('visible');
+    this.bannerExpireMs = 0;
+    this.p1CalloutEl.classList.remove('visible');
+    this.p2CalloutEl.classList.remove('visible');
+    this.p1ComboEl.classList.remove('visible', 'surge');
+    this.p2ComboEl.classList.remove('visible', 'surge');
+    this.p1CalloutExpireMs = 0;
+    this.p2CalloutExpireMs = 0;
     this.lastTimerSec = -1;
     this.lastP1Hp = -1;
     this.lastP2Hp = -1;
     this.lastWinsKey = '';
+    this.lastP1ComboKey = '';
+    this.lastP2ComboKey = '';
   }
 
   pushEvents(events: readonly CombatEvent[]): void {
@@ -105,6 +129,18 @@ export class FightHudController {
       ) {
         if (ev.text) {
           this.bannerEl.textContent = ev.text;
+          const splash = ev.text.startsWith('ROUND')
+            ? 'round'
+            : ev.text.startsWith('FIGHT')
+              ? 'fight'
+              : ev.text.includes('K.O') || ev.text.includes('K.O.')
+                ? 'ko'
+                : ev.kind === 'round_win'
+                  ? 'winner'
+                  : ev.kind === 'rage_art_start'
+                    ? 'rage'
+                    : 'round';
+          this.bannerEl.dataset.splash = splash;
           this.bannerEl.classList.add('visible');
           this.bannerExpireMs = now + (ev.kind === 'round_win' ? 2400 : 1350);
         }
@@ -170,23 +206,30 @@ export class FightHudController {
       this.renderCrystals(this.p2WinsEl, state.wins[1], state.config.roundsToWin);
     }
 
-    if (f0.comboCounter >= 2) {
-      this.p1ComboEl.textContent = `${f0.comboCounter} HITS // ${f0.comboDamage} DMG`;
-      this.p1ComboEl.classList.add('visible');
-    } else {
-      this.p1ComboEl.classList.remove('visible');
-    }
-
-    if (f1.comboCounter >= 2) {
-      this.p2ComboEl.textContent = `${f1.comboCounter} HITS // ${f1.comboDamage} DMG`;
-      this.p2ComboEl.classList.add('visible');
-    } else {
-      this.p2ComboEl.classList.remove('visible');
-    }
+    this.updateCombo(this.p1ComboEl, f0, 0);
+    this.updateCombo(this.p2ComboEl, f1, 1);
 
     if (state.config.practiceMode && state.tick % 3 === 0) {
       this.updatePracticeReadout(f0, f1);
     }
+  }
+
+  private updateCombo(el: HTMLElement, fighter: FighterSim, player: 0 | 1): void {
+    const comboActive = fighter.comboCounter >= 2;
+    const key = comboActive ? `${fighter.comboCounter}:${fighter.comboDamage}` : '';
+    const previous = player === 0 ? this.lastP1ComboKey : this.lastP2ComboKey;
+    if (key !== previous) {
+      if (player === 0) this.lastP1ComboKey = key;
+      else this.lastP2ComboKey = key;
+      if (comboActive) {
+        el.innerHTML = `<span class="combo-hit-count">${fighter.comboCounter}<small>HITS</small></span><span class="combo-damage"><small>DAMAGE</small>${fighter.comboDamage}</span>`;
+        el.classList.remove('surge');
+        void el.offsetWidth;
+        el.classList.add('surge');
+      }
+    }
+    el.classList.toggle('visible', comboActive);
+    if (!comboActive && el.classList.contains('surge')) el.classList.remove('surge');
   }
 
   private renderCrystals(container: HTMLElement, won: number, total: number): void {

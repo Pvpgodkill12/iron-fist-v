@@ -2411,3 +2411,163 @@ select {
   .setting-row:has([data-quality]) .seg-group { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
   .seg-btn[data-quality] { padding: 7px 3px; font-size: .62rem; letter-spacing: .04em; }
 }
+
+/* ==================== PHASE 2 — TEKKEN 5 CHROME / GOLD MATCH HUD ==================== */
+#screen-hud .hud-top {
+  gap: clamp(7px, 1.5vw, 22px);
+  padding: max(14px, env(safe-area-inset-top)) clamp(12px, 3vw, 48px) 0;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+#screen-hud .fighter-hud { gap: 7px; min-width: 0; }
+#screen-hud .hud-identity { min-width: 0; }
+#screen-hud .hud-rank {
+  margin-bottom: 2px;
+  color: #dfc78b;
+  font-size: clamp(.47rem, .7vw, .64rem);
+  font-weight: 900;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 4px #000;
+}
+#screen-hud .hud-name {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 10px 3px;
+  color: #fff5d8;
+  font-family: var(--font-display);
+  font-size: clamp(.9rem, 1.7vw, 1.48rem);
+  font-style: italic;
+  letter-spacing: .12em;
+  background: linear-gradient(180deg, rgba(30,32,38,.92), rgba(4,5,9,.86));
+  border: 1px solid rgba(239,216,161,.62);
+  border-bottom-color: #a78242;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 3px 12px rgba(0,0,0,.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#screen-hud .p2-hud .hud-name { border-color: rgba(205,216,229,.62); border-bottom-color: #9ca9b8; }
+#screen-hud .hud-sub { margin-top: 2px; color: rgba(231,229,222,.72); font-size: .57rem; letter-spacing: .14em; }
+#screen-hud .hud-meta-row { align-items: center; gap: 8px; }
+#screen-hud .hud-meta-row.reverse .hud-identity { text-align: right; }
+#screen-hud .hp-bar-frame {
+  height: clamp(18px, 2.2vw, 25px);
+  padding: 2px;
+  border: 1px solid #e4d09e;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #e5e7eb 0%, #50545a 16%, #111319 45%, #77716a 88%, #27282b 100%);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.82), 0 2px 12px rgba(0,0,0,.7), 0 0 8px rgba(211,174,99,.28);
+  transform: skewX(-17deg);
+}
+#screen-hud .hp-bar-frame::after {
+  content: ""; position: absolute; inset: 2px; z-index: 2; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.36), transparent 34%, transparent 70%, rgba(0,0,0,.3));
+}
+#screen-hud .hp-red-bar {
+  background: linear-gradient(180deg, #f7d783 0%, #dc4b35 24%, #9f1520 68%, #481019 100%);
+  opacity: .94;
+  transition: width .3s ease-out;
+}
+#screen-hud .hp-fill-bar {
+  background: linear-gradient(180deg, #fff1b0 0%, #e8b850 17%, #bd6a25 48%, #7d3516 88%, #4a1e10 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.65), 0 0 9px rgba(245,187,70,.42);
+}
+#screen-hud .p2-frame .hp-fill-bar { background: linear-gradient(180deg, #fff0b7 0%, #d9a946 16%, #aa5a24 50%, #713018 88%, #42190f 100%); }
+#screen-hud .hp-bar-frame.rage { border-color: #ff574b; box-shadow: 0 0 18px rgba(255,56,48,.8), inset 0 0 0 1px #26080a; }
+#screen-hud .win-gems { gap: 5px; align-items: center; }
+#screen-hud .win-gem {
+  width: clamp(9px, 1vw, 13px); height: clamp(9px, 1vw, 13px);
+  border-radius: 50%; transform: none;
+  background: radial-gradient(circle at 32% 28%, #777a80 0 12%, #20232a 44%, #07080b 76%);
+  border: 1px solid #b5a16d;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.25), 0 1px 5px #000;
+}
+#screen-hud .win-gem.lit {
+  background: radial-gradient(circle at 32% 25%, #fff6ce 0 8%, #f6d76c 26%, #b47a24 65%, #563916 100%);
+  border-color: #fff2bb;
+  box-shadow: inset 0 1px 2px #fff, 0 0 11px rgba(249,202,90,.75);
+}
+#screen-hud .hud-clock-box {
+  min-width: clamp(66px, 7vw, 100px);
+  padding: 2px 9px 5px;
+  border: 1px solid rgba(220,197,141,.72);
+  background: linear-gradient(180deg, rgba(12,14,19,.96), rgba(4,5,8,.78));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 14px rgba(0,0,0,.6);
+  clip-path: polygon(10% 0,90% 0,100% 18%,100% 82%,90% 100%,10% 100%,0 82%,0 18%);
+}
+#screen-hud .hud-timer {
+  color: #fff6d6;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 2.65rem);
+  font-style: italic;
+  -webkit-text-stroke: 1px rgba(237,213,158,.6);
+  text-shadow: 0 1px 0 #6c562b, 0 3px 8px #000;
+}
+#screen-hud .hud-timer.danger { color: #ff4b35; -webkit-text-stroke-color: #ffd5a0; animation: hud-timer-pulse .6s infinite alternate; }
+@keyframes hud-timer-pulse { to { filter: brightness(1.6); } }
+#screen-hud .hud-stage-tag { margin-top: 4px; color: #d6c18f; font-size: .48rem; letter-spacing: .12em; }
+#screen-hud .hud-net-pill {
+  margin-top: 4px; padding: 2px 4px; color: #b7f1df;
+  font: 800 .46rem ui-monospace, monospace; letter-spacing: .05em;
+  border: 1px solid rgba(120,226,185,.38); background: rgba(0,0,0,.68);
+}
+#screen-hud .combo-badge {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 9px;
+  color: #fff; font-style: italic;
+  background: linear-gradient(105deg, rgba(28,8,8,.96), rgba(96,14,12,.92) 65%, rgba(25,8,8,.88));
+  border: 1px solid #dbb66b;
+  border-left: 3px solid #ff3e32;
+  box-shadow: 0 4px 12px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.2);
+  clip-path: polygon(7px 0,100% 0,calc(100% - 9px) 100%,0 100%);
+}
+#screen-hud .combo-hit-count { display: flex; align-items: baseline; gap: 4px; color: #fff2cf; font-size: 1.45rem; line-height: 1; }
+#screen-hud .combo-hit-count small, #screen-hud .combo-damage small { font: 900 .48rem var(--font-ui); letter-spacing: .14em; }
+#screen-hud .combo-damage { color: #ff3d35; font: 900 1.35rem/1 var(--font-display); text-shadow: 2px 1px 0 #6d0c12, 0 0 12px rgba(255,25,25,.72); }
+#screen-hud .combo-damage small { display: block; color: #dfc78b; font-family: var(--font-ui); margin-bottom: 2px; }
+#screen-hud .combo-badge.surge { animation: combo-surge .18s ease-out; }
+@keyframes combo-surge { 0% { transform: translateY(8px) scale(1.14); filter: brightness(2); } 100% { transform: translateY(0) scale(1); filter: brightness(1); } }
+#screen-hud .side-callout { color: #fff3d0; background: linear-gradient(90deg, rgba(18,19,22,.96), rgba(4,5,8,.88)); border-left-color: #d6b466; }
+#screen-hud .hud-quick-tools { top: max(82px, calc(env(safe-area-inset-top) + 64px)); }
+#screen-hud .hud-tool-btn { border-color: rgba(219,190,121,.5); color: #e2d2aa; background: rgba(8,9,13,.78); }
+#screen-hud .hud-tool-btn:hover { border-color: #f2d17b; color: #fff5d8; }
+#screen-hud .center-banner {
+  top: 43%; z-index: 5;
+  padding: .04em .42em .1em;
+  color: #fff9e8;
+  font-size: clamp(3rem, 9vw, 7.4rem);
+  font-weight: 900; font-style: italic;
+  letter-spacing: .11em;
+  -webkit-text-stroke: 1px rgba(255,231,183,.92);
+  text-shadow: 0 2px 0 #765a2a, 0 6px 0 rgba(25,19,12,.88), 0 0 26px rgba(227,39,26,.56), 0 14px 32px #000;
+  filter: drop-shadow(0 10px 12px rgba(0,0,0,.75));
+}
+#screen-hud .center-banner::before {
+  content: ""; position: absolute; inset: 19% -28% 15%; z-index: -1;
+  transform: skewX(-18deg) rotate(-2deg);
+  border-top: 2px solid rgba(255,231,180,.9); border-bottom: 2px solid rgba(215,38,28,.92);
+  background: linear-gradient(90deg, transparent, rgba(13,15,19,.88) 13%, rgba(80,13,13,.8) 52%, rgba(13,15,19,.88) 87%, transparent);
+}
+#screen-hud .center-banner[data-splash="fight"] { color: #fff; font-size: clamp(4rem, 12vw, 9rem); -webkit-text-stroke: 2px #ffce72; }
+#screen-hud .center-banner[data-splash="round"] { color: #fff0c3; font-size: clamp(2.8rem, 8vw, 6rem); }
+#screen-hud .center-banner[data-splash="ko"] { color: #ff3d31; font-size: clamp(5rem, 14vw, 10rem); -webkit-text-stroke: 2px #fff1c8; text-shadow: 0 4px #5d0709, 0 0 38px rgba(255,27,20,.92), 0 14px 34px #000; }
+#screen-hud .center-banner[data-splash="winner"] { color: #ffe6a1; font-size: clamp(2.4rem, 7vw, 5.7rem); }
+#screen-hud .center-banner[data-splash="rage"] { color: #ff6259; -webkit-text-stroke: 1px #fff; }
+
+@media (max-width: 520px) {
+  #screen-hud .hud-top { padding: max(8px, env(safe-area-inset-top)) 8px 0; gap: 5px; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); }
+  #screen-hud .fighter-hud { gap: 4px; }
+  #screen-hud .hud-rank { font-size: .43rem; letter-spacing: .1em; }
+  #screen-hud .hud-name { padding: 2px 4px; font-size: clamp(.62rem, 2.5vw, .85rem); letter-spacing: .055em; }
+  #screen-hud .hud-sub { display: none; }
+  #screen-hud .hud-meta-row { gap: 3px; }
+  #screen-hud .win-gems { gap: 2px; }
+  #screen-hud .win-gem { width: 8px; height: 8px; }
+  #screen-hud .hp-bar-frame { height: 14px; padding: 1px; }
+  #screen-hud .hud-clock-box { min-width: 50px; padding: 2px 5px 3px; }
+  #screen-hud .hud-timer { font-size: 1.45rem; }
+  #screen-hud .hud-stage-tag, #screen-hud .hud-net-pill { display: none; }
+  #screen-hud .hud-quick-tools { top: 55px; }
+  #screen-hud .combo-badge { padding: 3px 6px; gap: 5px; }
+  #screen-hud .combo-hit-count, #screen-hud .combo-damage { font-size: 1rem; }
+}

@@ -662,7 +662,7 @@ function bootGame(): void {
 
     document.getElementById('btn-post-rematch')!.querySelector('.blade-label')!.textContent =
       'REMATCH';
-    hud.bindMatchHeader(match, `ONLINE P${onlineSlot + 1}`);
+    hud.bindMatchHeader(match, `ONLINE P${onlineSlot + 1}`, onlineSlot);
     refreshMoveList(myChar.id);
     showScreen('match');
     sound.playUiTick(true);
