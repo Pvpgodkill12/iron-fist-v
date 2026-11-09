@@ -78,6 +78,30 @@ function onTap(el: HTMLElement | null, handler: () => void): void {
   });
 }
 
+
+function fighterPortrait(ch: CharacterData): string {
+  const costume = ch.costumes[0];
+  return `<div class="portrait-art" style="--portrait-accent:${costume.aura};--portrait-skin:${costume.skin};--portrait-hair:${costume.hair};--portrait-top:${costume.top};" aria-hidden="true">
+    <svg viewBox="0 0 100 100" focusable="false">
+      <path class="portrait-halo" d="M8 100 Q10 63 33 59 L37 48 H63 L67 59 Q90 63 92 100Z" />
+      <path class="portrait-neck" d="M42 52 L42 66 Q50 74 58 66 L58 52Z" />
+      <path class="portrait-body" d="M13 100 Q15 68 38 62 L50 76 L62 62 Q85 68 87 100Z" />
+      <path class="portrait-face" d="M33 26 Q35 10 50 10 Q66 10 68 27 L65 46 Q61 58 50 61 Q39 58 35 46Z" />
+      <path class="portrait-hair" d="M31 31 Q27 14 40 8 Q54 1 66 11 L73 26 L65 22 L58 16 L52 24 L43 17 L35 29Z" />
+      <path class="portrait-brow" d="M39 34h7 M54 34h7" />
+      <path class="portrait-eyes" d="M40 39h5 M55 39h5" />
+      <path class="portrait-nose" d="M50 38l-2 9 4 1" />
+      <path class="portrait-mouth" d="M45 52 Q50 54 55 52" />
+      <path class="portrait-light" d="M7 86L37 57 M66 58L96 23" />
+    </svg>
+  </div>`;
+}
+
+function randomRosterChar(excludeId?: string): CharacterData {
+  const pool = ROSTER.filter((ch) => ch.id !== excludeId);
+  return pool[Math.floor(Math.random() * pool.length)] ?? ROSTER[0];
+}
+
 function bootGame(): void {
   const pill = document.getElementById('engine-pill');
   if (pill) pill.textContent = 'RENDERER INITIALIZING';
@@ -485,10 +509,11 @@ function bootGame(): void {
             ${isP1 ? '<span class="cursor-tag">P1</span>' : ''}
             ${isP2 ? '<span class="cursor-tag p2">P2</span>' : ''}
           </div>
+          ${fighterPortrait(ch)}
           <div class="tile-name">${ch.name}</div>
           <div class="tile-art">${ch.martialArt}</div>
         </button>`;
-    }).join('');
+    }).join('') + `<button class="roster-tile random-tile" data-mp-random aria-label="Random fighter"><div class="random-mark">?</div><div class="tile-name">RANDOM</div><div class="tile-art">SURPRISE ME</div></button>`;
 
     mpRosterGrid.querySelectorAll<HTMLButtonElement>('[data-mp-char]').forEach((tile) => {
       onTap(tile, () => {
@@ -497,6 +522,13 @@ function bootGame(): void {
         sound.playUiTick();
         online.updateMyCharacterSelection(mpMyCharId, mpMyCostume, false);
       });
+    });
+    const randomTile = mpRosterGrid.querySelector<HTMLButtonElement>('[data-mp-random]');
+    if (randomTile) onTap(randomTile, () => {
+      if (mpMyLocked) return;
+      mpMyCharId = randomRosterChar(mpMyCharId).id;
+      sound.playUiTick();
+      online.updateMyCharacterSelection(mpMyCharId, mpMyCostume, false);
     });
   }
 
@@ -651,10 +683,11 @@ function bootGame(): void {
       const sel = ch.id === p1Char.id ? 'selected' : '';
       return `
         <button class="roster-tile ${sel}" data-char-id="${ch.id}">
+          ${fighterPortrait(ch)}
           <div class="tile-name">${ch.name}</div>
           <div class="tile-art">${ch.martialArt}</div>
         </button>`;
-    }).join('');
+    }).join('') + `<button class="roster-tile random-tile" data-random-char aria-label="Random fighter"><div class="random-mark">?</div><div class="tile-name">RANDOM</div><div class="tile-art">SURPRISE ME</div></button>`;
 
     rosterGrid.querySelectorAll<HTMLButtonElement>('[data-char-id]').forEach((tile) => {
       onTap(tile, () => {
@@ -662,6 +695,12 @@ function bootGame(): void {
         sound.playUiTick();
         renderFighterSelectUi();
       });
+    });
+    const randomTile = rosterGrid.querySelector<HTMLButtonElement>('[data-random-char]');
+    if (randomTile) onTap(randomTile, () => {
+      p1Char = randomRosterChar(p1Char.id);
+      sound.playUiTick();
+      renderFighterSelectUi();
     });
   }
 
