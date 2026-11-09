@@ -135,6 +135,8 @@ export interface LoadedHumanoidPack {
   readonly bindPose: Pose;
 }
 
+const MODEL_ASSET_REVISION = '20261109-hotfix1';
+
 let cachedPack: LoadedHumanoidPack | null = null;
 let loadPromise: Promise<LoadedHumanoidPack | null> | null = null;
 const readyListeners: Array<() => void> = [];
@@ -223,8 +225,8 @@ export function loadHumanoidPack(): Promise<LoadedHumanoidPack | null> {
   }
 
   loadPromise = Promise.all([
-    fetch('./models/fighters/martial_fighters.glb').then((r) => (r.ok ? r.arrayBuffer() : null)),
-    fetch('./models/fighters/female_and_parts.glb')
+    fetch(`./models/fighters/martial_fighters.glb?v=${MODEL_ASSET_REVISION}`, { cache: 'force-cache' }).then((r) => (r.ok ? r.arrayBuffer() : null)),
+    fetch(`./models/fighters/female_and_parts.glb?v=${MODEL_ASSET_REVISION}`, { cache: 'force-cache' })
       .then((r) => (r.ok ? r.arrayBuffer() : null))
       .catch(() => null),
   ])
@@ -937,7 +939,8 @@ export class MocapFighterAnimator {
     const isSword = f.char.id === 'yoshimaru';
 
     if (isShowcasePreview) {
-      const name = isSword ? 'Sword_Idle' : 'Idle_FoldArms_Loop';
+      // Use a compact guard-ready idle in menu/select; folded-arm showcase clips look non-combatant.
+      const name = isSword ? 'Sword_Idle' : 'Idle_Shield_Loop';
       const clip = this.pack.clips.get(name);
       return { name, timeSec: clip ? clockSec % clip.durationSec : 0 };
     }

@@ -2403,3 +2403,11 @@ select {
   .fighter-select-layout .tile-name { font-size: .6rem; padding-top: 3px; }
   .fighter-select-layout .tile-art { display: none; }
 }
+
+/* Graphics presets stay tappable on narrow phones with the added Lite tier. */
+.seg-btn[data-quality] { padding: 7px 9px; letter-spacing: .08em; }
+@media (max-width: 520px) {
+  .setting-row:has([data-quality]) { align-items: flex-start; }
+  .setting-row:has([data-quality]) .seg-group { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .seg-btn[data-quality] { padding: 7px 3px; font-size: .62rem; letter-spacing: .04em; }
+}

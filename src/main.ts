@@ -107,7 +107,11 @@ function bootGame(): void {
   if (pill) pill.textContent = 'RENDERER INITIALIZING';
 
   window.addEventListener('error', (ev) => {
-    if (pill) pill.textContent = `ERROR: ${ev.message}`;
+    // Keep renderer/context faults out of the game UI; the last working scene remains visible.
+    console.error('[IRON FIST V] runtime error:', ev.error ?? ev.message);
+    if (pill && /getCurrentTexture|context is not configured/i.test(ev.message)) {
+      pill.textContent = 'GRAPHICS RECOVERING';
+    }
   });
 
   getCombatWasm();
@@ -118,7 +122,17 @@ function bootGame(): void {
 
   const isCompactTouch =
     window.innerWidth <= 900 && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-  const initialQuality: QualityPreset = isCompactTouch ? 'mobile' : 'high';
+  const savedQuality = (() => {
+    try {
+      const saved = localStorage.getItem('iron-fist-v-quality');
+      return saved === 'lite' || saved === 'mobile' || saved === 'high' || saved === 'ultra'
+        ? (saved as QualityPreset)
+        : null;
+    } catch {
+      return null;
+    }
+  })();
+  const initialQuality: QualityPreset = savedQuality ?? (isCompactTouch ? 'lite' : 'high');
 
   let scene: SceneEngineLike | null = null;
 
@@ -228,6 +242,61 @@ function bootGame(): void {
       btn.classList.toggle('active', btn.dataset.quality === q);
     });
   }
+
+  let qualityTransitioning = false;
+  async function applyGraphicsQuality(targetQ: QualityPreset): Promise<void> {
+    const previousScene = scene;
+    if (!previousScene || previousScene.quality === targetQ || qualityTransitioning) return;
+    qualityTransitioning = true;
+    const previousCanvas = previousScene.canvas;
+    const replacementCanvas = previousCanvas.cloneNode(false) as HTMLCanvasElement;
+    replacementCanvas.id = 'stage';
+    replacementCanvas.style.opacity = '0';
+    replacementCanvas.style.pointerEvents = 'none';
+    replacementCanvas.setAttribute('aria-hidden', 'true');
+    previousCanvas.parentNode?.insertBefore(replacementCanvas, previousCanvas.nextSibling);
+
+    try {
+      // Keep the old renderer alive until the new context has configured successfully.
+      const nextScene = await FightSceneEngine.create(replacementCanvas, targetQ);
+      if (match) {
+        nextScene.loadStage(match.config.stage);
+        nextScene.ensureFightersLoaded(
+          match.config.p1,
+          match.config.p1Costume,
+          match.config.p2,
+          match.config.p2Costume,
+        );
+      } else {
+        nextScene.loadStage(selectedStage);
+        nextScene.ensureFightersLoaded(p1Char, p1Costume, cpuChar, cpuCostume);
+      }
+      const nextCanvas = nextScene.canvas;
+      nextCanvas.id = 'stage';
+      nextCanvas.style.opacity = '1';
+      nextCanvas.style.pointerEvents = 'auto';
+      nextCanvas.removeAttribute('aria-hidden');
+      scene = nextScene;
+      bindCanvasInteractions(nextCanvas);
+      previousCanvas.remove();
+      previousScene.dispose();
+      syncSettingsQualityUi(nextScene.quality);
+      updateEnginePill();
+      try {
+        localStorage.setItem('iron-fist-v-quality', nextScene.quality);
+      } catch {
+        // Graphics preferences are optional in private browsing / storage-restricted contexts.
+      }
+    } catch (err) {
+      replacementCanvas.remove();
+      scene = previousScene;
+      syncSettingsQualityUi(previousScene.quality);
+      console.warn('[IRON FIST V] Graphics change failed; kept the working renderer.', err);
+    } finally {
+      qualityTransitioning = false;
+    }
+  }
+
   syncSettingsQualityUi(initialQuality);
 
   void FightSceneEngine.create(initialCanvas, initialQuality).then((createdScene) => {
@@ -865,16 +934,9 @@ function bootGame(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((btn) => {
     onTap(btn, () => {
       const targetQ = btn.dataset.quality as QualityPreset;
-      if (!scene || scene.quality === targetQ) return;
+      if (!scene || scene.quality === targetQ || qualityTransitioning) return;
       sound.playUiTick();
-      const activeCanvas = scene.canvas;
-      scene.dispose();
-      void FightSceneEngine.create(activeCanvas, targetQ).then((nextScene) => {
-        scene = nextScene;
-        bindCanvasInteractions(scene.canvas);
-        syncSettingsQualityUi(scene.quality);
-        updateEnginePill();
-      });
+      void applyGraphicsQuality(targetQ);
     });
   });
 
@@ -1083,6 +1145,7 @@ function bootGame(): void {
   }
 
   // ==================== FIXED-STEP 60HZ GAME LOOP ====================
+  let lastRenderError = '';
   startLoop({
     simulate(dt) {
       if (currentScreen !== 'match' || match === null) {
@@ -1140,25 +1203,38 @@ function bootGame(): void {
     },
 
     render(alpha) {
-      if (!scene) return;
-      if (currentScreen !== 'match' || match === null) {
-        const showcaseMode: MenuShowcaseMode =
-          currentScreen === 'arena' || currentScreen === 'mp_vote'
-            ? 'arena_preview'
-            : currentScreen === 'fighter'
-              ? 'fighter_preview'
-              : 'home';
-        scene.renderMenuShowcase(
-          p1Char,
-          p1Costume,
-          cpuChar,
-          cpuCostume,
-          selectedStage,
-          showcaseMode,
-        );
-        return;
+      const activeScene = scene;
+      if (!activeScene) return;
+      try {
+        if (currentScreen !== 'match' || match === null) {
+          const showcaseMode: MenuShowcaseMode =
+            currentScreen === 'arena' || currentScreen === 'mp_vote'
+              ? 'arena_preview'
+              : currentScreen === 'fighter'
+                ? 'fighter_preview'
+                : 'home';
+          activeScene.renderMenuShowcase(
+            p1Char,
+            p1Costume,
+            cpuChar,
+            cpuCostume,
+            selectedStage,
+            showcaseMode,
+          );
+          return;
+        }
+        activeScene.renderMatch(match, paused && activeMode !== 'online' ? 1 : alpha);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message !== lastRenderError) {
+          lastRenderError = message;
+          console.warn('[IRON FIST V] dropped a renderer frame:', err);
+        }
+        // A lost/unconfigured WebGPU surface should recover to the light WebGL profile, not crash the game.
+        if (activeScene.quality !== 'lite' && !qualityTransitioning) {
+          void applyGraphicsQuality('lite');
+        }
       }
-      scene.renderMatch(match, paused && activeMode !== 'online' ? 1 : alpha);
     },
   });
 }

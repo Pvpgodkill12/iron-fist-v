@@ -52,7 +52,7 @@ import {
 import { buildStageGeometry } from './stageBuilder';
 import { buildStageFloorCanvas } from './stageTextures';
 
-export type QualityPreset = 'ultra' | 'high' | 'mobile';
+export type QualityPreset = 'lite' | 'mobile' | 'high' | 'ultra';
 export type MenuShowcaseMode = 'home' | 'arena_preview' | 'fighter_preview';
 
 export interface SceneEngineLike {
@@ -84,6 +84,7 @@ export interface SceneEngineLike {
 }
 
 const IDENTITY_MAT = mat4.create();
+const MODEL_ASSET_REVISION = '20261109-hotfix1';
 
 function replaceWithFreshCanvas(oldCanvas: HTMLCanvasElement): HTMLCanvasElement {
   const fresh = oldCanvas.cloneNode(false) as HTMLCanvasElement;
@@ -118,6 +119,7 @@ export class FightSceneEngine implements SceneEngineLike {
   private stageFloorMaterial: SceneCasterMaterial = null;
   private currentStage: StageDefinition | null = null;
   private stageLoadToken = 0;
+  private disposed = false;
   private env!: Environment;
   private skyLinear: Vec3 = [0.05, 0.08, 0.15];
 
@@ -163,6 +165,11 @@ export class FightSceneEngine implements SceneEngineLike {
     this.backend = created.backend;
     this.backendReason = created.reason;
     this.quality = quality;
+    const isLite = quality === 'lite';
+    const sparkCapacity = isLite ? 48 : 220;
+    const dustCapacity = isLite ? 32 : 140;
+    const ambientCapacity = isLite ? 18 : 100;
+    const boltCapacity = isLite ? 6 : 28;
 
     // Tight depth frustum prevents mobile 16/24-bit depth buffer Z-fighting!
     this.camera.fovYDeg = 44;
@@ -171,7 +178,7 @@ export class FightSceneEngine implements SceneEngineLike {
 
     // 1. Impact Hit Sparks (Crimson/Gold HDR streaks)
     this.sparkPool = new ParticlePool({
-      capacity: 220,
+      capacity: sparkCapacity,
       lifeSec: 0.34,
       sizeStart: 0.085,
       sizeEnd: 0.01,
@@ -183,7 +190,7 @@ export class FightSceneEngine implements SceneEngineLike {
       alphaStart: 1.0,
       alphaEnd: 0.0,
     });
-    this.sparkBatch = this.renderer.createParticles(220, {
+    this.sparkBatch = this.renderer.createParticles(sparkCapacity, {
       material: 'spark',
       blend: 'additive',
       facing: 'velocity',
@@ -193,7 +200,7 @@ export class FightSceneEngine implements SceneEngineLike {
 
     // 2. Footwork / Knockdown / Wall-Splat Dust Puffs
     this.dustPool = new ParticlePool({
-      capacity: 140,
+      capacity: dustCapacity,
       lifeSec: 0.58,
       sizeStart: 0.14,
       sizeEnd: 0.42,
@@ -205,7 +212,7 @@ export class FightSceneEngine implements SceneEngineLike {
       alphaStart: 0.48,
       alphaEnd: 0.0,
     });
-    this.dustBatch = this.renderer.createParticles(140, {
+    this.dustBatch = this.renderer.createParticles(dustCapacity, {
       material: 'smoke',
       blend: 'alpha',
       facing: 'camera',
@@ -214,7 +221,7 @@ export class FightSceneEngine implements SceneEngineLike {
 
     // 3. Stage Atmospheric Motes / Embers
     this.ambientPool = new ParticlePool({
-      capacity: 100,
+      capacity: ambientCapacity,
       lifeSec: 3.6,
       sizeStart: 0.04,
       sizeEnd: 0.018,
@@ -226,7 +233,7 @@ export class FightSceneEngine implements SceneEngineLike {
       alphaStart: 0.75,
       alphaEnd: 0.0,
     });
-    this.ambientBatch = this.renderer.createParticles(100, {
+    this.ambientBatch = this.renderer.createParticles(ambientCapacity, {
       material: 'mote',
       blend: 'additive',
       facing: 'camera',
@@ -234,13 +241,13 @@ export class FightSceneEngine implements SceneEngineLike {
 
     // 4. Electric Lightning Arcs & Rage Bolts
     this.boltPool = new BoltPool({
-      capacity: 28,
+      capacity: boltCapacity,
       nodes: 9,
       lifeSec: 0.22,
       jitter: 0.28,
       restrikeHz: 32,
     });
-    this.boltBatch = this.renderer.createBolts(28 * 8, 'mishima-lightning');
+    this.boltBatch = this.renderer.createBolts(boltCapacity * 8, 'mishima-lightning');
 
     // 5. Practice Mode 3D Hitbox / Hurtbox Wireframe Lines
     this.debugLines = createLineSegments(96);
@@ -283,43 +290,50 @@ export class FightSceneEngine implements SceneEngineLike {
 
     this.renderer.resize();
 
-    // Stream 65-bone CC0 Humanoid 3D Models + 34 Martial-Arts Mocap Clips and hot-swap seamlessly!
-    void loadHumanoidPack();
-    onHumanoidPackReady(() => {
-      const pack = getHumanoidPack();
-      if (!pack) return;
-      this.mocapAnimators = [new MocapFighterAnimator(pack), new MocapFighterAnimator(pack)];
-      this.fighterMeshKeys = ['', ''];
-      if (this.lastPair) {
-        const [p1, c1, p2, c2] = this.lastPair;
-        this.ensureFightersLoaded(p1, c1, p2, c2);
-      }
-    });
+    // Lite stays on the procedural rigs: no multi-megabyte model fetch or late T-pose/model swap.
+    if (quality !== 'lite') {
+      void loadHumanoidPack();
+      onHumanoidPackReady(() => {
+        if (this.disposed) return;
+        const pack = getHumanoidPack();
+        if (!pack) return;
+        this.mocapAnimators = [new MocapFighterAnimator(pack), new MocapFighterAnimator(pack)];
+        this.fighterMeshKeys = ['', ''];
+        if (this.lastPair) {
+          const [p1, c1, p2, c2] = this.lastPair;
+          this.ensureFightersLoaded(p1, c1, p2, c2);
+        }
+      });
+    }
   }
 
   static async create(
     canvas: HTMLCanvasElement,
     preset: QualityPreset = 'high',
   ): Promise<SceneEngineLike> {
-    const isMobilePreset = preset === 'mobile';
+    const isLite = preset === 'lite';
+    const isLow = preset === 'mobile';
     const isUltra = preset === 'ultra';
     const qualityOpts = {
-      maxDevicePixelRatio: isMobilePreset ? 1.35 : isUltra ? 2.0 : 1.7,
-      directionalShadows: true,
-      directionalShadowMapSize: isMobilePreset ? 1024 : 2048,
-      hdrScene: true,
-      screenEffects: true,
+      // Bound GPU memory and fill rate; Lite deliberately renders below native resolution.
+      maxDevicePixelRatio: isLite ? 0.68 : isLow ? 0.95 : isUltra ? 1.4 : 1.2,
+      directionalShadows: !isLite && !isLow,
+      directionalShadowMapSize: isLite ? 256 : isLow ? 512 : 1024,
+      hdrScene: !isLite && !isLow,
+      screenEffects: !isLite && !isLow,
       outputTransform: 'shoulder' as const,
-      bloom: isMobilePreset ? 0.28 : 0.45,
+      bloom: isLite || isLow ? 0 : isUltra ? 0.32 : 0.18,
       bloomThreshold: 1.1,
-      ambientOcclusion: isMobilePreset ? 0 : 0.4,
+      ambientOcclusion: isLite || isLow ? 0 : isUltra ? 0.14 : 0.08,
       planarReflections: false,
     };
 
     try {
       const created = await createRenderer(canvas, qualityOpts, {
         splash: false,
-        backendTimeoutMs: 3500,
+        // The ultra-light path uses WebGL2's smaller, predictable resource profile on older phones.
+        ...(preset === 'lite' ? { preferWebGpu: false } : {}),
+        backendTimeoutMs: preset === 'lite' ? 1800 : 3500,
       });
       return new FightSceneEngine(canvas, created, preset);
     } catch {
@@ -340,6 +354,9 @@ export class FightSceneEngine implements SceneEngineLike {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.stageLoadToken += 1;
     if (this.stageFloorMesh !== null) this.renderer.disposeMesh(this.stageFloorMesh);
     if (this.stageArchMesh !== null) this.renderer.disposeMesh(this.stageArchMesh);
     if (this.stageFloorTexture !== null) {
@@ -371,7 +388,7 @@ export class FightSceneEngine implements SceneEngineLike {
     }
 
     // 1. Upload crisp 512x512 procedural PBR floor tile texture (zero coplanar seams!)
-    const texCanvas = buildStageFloorCanvas(stage.id);
+    const texCanvas = buildStageFloorCanvas(stage.id, this.quality === 'lite' ? 256 : 512);
     if (texCanvas) {
       this.stageFloorTexture = this.renderer.createSurfaceTexture(texCanvas);
       this.stageFloorMaterial = {
@@ -388,8 +405,12 @@ export class FightSceneEngine implements SceneEngineLike {
     this.currentStage = stage;
 
     // 3. Stream baked Khronos glTF 2.0 `.glb` 3D Arena from `./models/stages/${stage.id}.glb` when hosted over HTTP(S)
-    if (typeof fetch === 'function' && window.location.protocol.startsWith('http')) {
-      void fetch(`./models/stages/${stage.id}.glb`)
+    if (
+      this.quality !== 'lite' &&
+      typeof fetch === 'function' &&
+      window.location.protocol.startsWith('http')
+    ) {
+      void fetch(`./models/stages/${stage.id}.glb?v=${MODEL_ASSET_REVISION}`, { cache: 'force-cache' })
         .then((res) => (res.ok ? res.arrayBuffer() : null))
         .then((buf) => {
           if (!buf || token !== this.stageLoadToken) return;
@@ -1222,7 +1243,8 @@ class Canvas2dFallbackEngine implements SceneEngineLike {
   }
 
   resize(): void {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const deviceDpr = window.devicePixelRatio || 1;
+    const dpr = this.quality === 'lite' ? Math.min(0.68, deviceDpr) : this.quality === 'mobile' ? Math.min(0.95, deviceDpr) : Math.min(1.35, deviceDpr);
     this.canvas.width = Math.max(1, Math.floor(window.innerWidth * dpr));
     this.canvas.height = Math.max(1, Math.floor(window.innerHeight * dpr));
   }

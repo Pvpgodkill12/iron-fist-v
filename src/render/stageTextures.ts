@@ -5,13 +5,14 @@ import type { StageId } from '../data/types';
  * Because markings (mortar seams, dojo cedar planks, marble veins, helipad markings)
  * live inside the GPU texture rather than coplanar 4mm boxes, Z-fighting is 0.0%.
  */
-export function buildStageFloorCanvas(stageId: StageId): HTMLCanvasElement | null {
+export function buildStageFloorCanvas(stageId: StageId, size = 512): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
+  if (size !== 512) ctx.scale(size / 512, size / 512);
 
   let seed = stageId.length * 4999 + 17;
   const rand = (): number => {
